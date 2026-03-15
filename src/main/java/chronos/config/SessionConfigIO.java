@@ -53,6 +53,13 @@ public class SessionConfigIO {
         cfg.reporterType = getString(props, "reporterType", cfg.reporterType);
         cfg.frameIntervalMin = getDouble(props, "frameIntervalMin", cfg.frameIntervalMin);
 
+        // Crop
+        cfg.cropEnabled = getBool(props, "cropEnabled", cfg.cropEnabled);
+        cfg.cropX = getInt(props, "cropX", cfg.cropX);
+        cfg.cropY = getInt(props, "cropY", cfg.cropY);
+        cfg.cropWidth = getInt(props, "cropWidth", cfg.cropWidth);
+        cfg.cropHeight = getInt(props, "cropHeight", cfg.cropHeight);
+
         // Frame Binning
         cfg.binningEnabled = getBool(props, "binningEnabled", cfg.binningEnabled);
         cfg.binFactor = getInt(props, "binFactor", cfg.binFactor);
@@ -60,6 +67,7 @@ public class SessionConfigIO {
 
         // Motion Correction
         cfg.motionCorrectionEnabled = getBool(props, "motionCorrectionEnabled", cfg.motionCorrectionEnabled);
+        cfg.motionCorrectionMethod = getString(props, "motionCorrectionMethod", cfg.motionCorrectionMethod);
         cfg.motionCorrectionReference = getString(props, "motionCorrectionReference", cfg.motionCorrectionReference);
 
         // Background Subtraction
@@ -145,6 +153,14 @@ public class SessionConfigIO {
             pw.println("frameIntervalMin=" + cfg.frameIntervalMin);
             pw.println();
 
+            pw.println("# Crop");
+            pw.println("cropEnabled=" + cfg.cropEnabled);
+            pw.println("cropX=" + cfg.cropX);
+            pw.println("cropY=" + cfg.cropY);
+            pw.println("cropWidth=" + cfg.cropWidth);
+            pw.println("cropHeight=" + cfg.cropHeight);
+            pw.println();
+
             pw.println("# Frame Binning");
             pw.println("binningEnabled=" + cfg.binningEnabled);
             pw.println("binFactor=" + cfg.binFactor);
@@ -153,6 +169,7 @@ public class SessionConfigIO {
 
             pw.println("# Motion Correction");
             pw.println("motionCorrectionEnabled=" + cfg.motionCorrectionEnabled);
+            pw.println("motionCorrectionMethod=" + cfg.motionCorrectionMethod);
             pw.println("motionCorrectionReference=" + cfg.motionCorrectionReference);
             pw.println();
 

@@ -122,7 +122,9 @@ public class ChronosPipeline implements PlugIn {
             }
 
             Analysis analysis = analyses.get(i);
-            analysis.setHeadless(config.hideImageWindows);
+            // ROI Definition (index 1) is always interactive — never set headless
+            boolean isRoiModule = (i == 1);
+            analysis.setHeadless(!isRoiModule && config.hideImageWindows);
             analysis.setParallelThreads(config.parallelProcessing ? config.parallelThreads : 1);
 
             IJ.log("");

@@ -13,6 +13,14 @@ public class SessionConfig {
     /** Frame interval in minutes */
     public double frameIntervalMin = 10.0;
 
+    // --- Crop ---
+    public boolean cropEnabled = true;
+    /** Crop rectangle: x, y, width, height in pixels. Null means not yet defined. */
+    public int cropX = -1;
+    public int cropY = -1;
+    public int cropWidth = -1;
+    public int cropHeight = -1;
+
     // --- Frame Binning ---
     public boolean binningEnabled = false;
     public int binFactor = 4;
@@ -21,7 +29,9 @@ public class SessionConfig {
 
     // --- Motion Correction ---
     public boolean motionCorrectionEnabled = true;
-    /** "first", "mean", or "median" */
+    /** "SIFT", "Cross-Correlation", or "None" */
+    public String motionCorrectionMethod = "SIFT";
+    /** "first", "mean", or "median" — used by Cross-Correlation method */
     public String motionCorrectionReference = "mean";
 
     // --- Background Subtraction ---

@@ -9,11 +9,14 @@ import chronos.ui.ToggleSwitch;
 import ij.IJ;
 import ij.ImagePlus;
 import ij.ImageStack;
+import ij.gui.Roi;
+import ij.gui.WaitForUserDialog;
 import ij.io.FileSaver;
 import ij.process.ImageProcessor;
 import ij.process.ImageStatistics;
 
 import javax.swing.*;
+import java.awt.*;
 import java.awt.event.ItemEvent;
 import java.awt.event.ItemListener;
 import java.io.File;
@@ -93,6 +96,57 @@ public class PreprocessingAnalysis implements Analysis {
         IJ.log("Pre-processing " + tifFiles.length + " file(s)...");
         IJ.log("  Reporter type: " + config.reporterType);
 
+        // Interactive crop: if enabled and not yet defined, show first image for user to draw crop rectangle
+        if (config.cropEnabled && config.cropX < 0) {
+            String firstPath = directory + tifFiles[0];
+            IJ.log("");
+            IJ.log("Crop: Loading first image for crop region selection...");
+            ImagePlus firstImp = IJ.openImage(firstPath);
+            if (firstImp != null) {
+                // Show a mean projection so the user can see the sample
+                ij.plugin.ZProjector zp = new ij.plugin.ZProjector(firstImp);
+                zp.setMethod(ij.plugin.ZProjector.AVG_METHOD);
+                zp.doProjection();
+                ImagePlus proj = zp.getProjection();
+                proj.setTitle("Draw crop rectangle — " + tifFiles[0]);
+                // Auto-enhance contrast for visibility
+                IJ.run(proj, "Enhance Contrast", "saturated=0.35");
+                proj.show();
+                firstImp.close();
+
+                WaitForUserDialog cropWait = new WaitForUserDialog(
+                        "CHRONOS — Crop Region",
+                        "Draw a RECTANGLE around the sample area.\n" +
+                        "This crop will be applied to all images.\n\n" +
+                        "Use the Rectangle tool, then press OK.\n" +
+                        "Press ESC to skip cropping.");
+                cropWait.show();
+
+                if (!cropWait.escPressed()) {
+                    Roi cropRoi = proj.getRoi();
+                    if (cropRoi != null && cropRoi.getType() == Roi.RECTANGLE) {
+                        Rectangle r = cropRoi.getBounds();
+                        config.cropX = r.x;
+                        config.cropY = r.y;
+                        config.cropWidth = r.width;
+                        config.cropHeight = r.height;
+                        IJ.log("  Crop region set: " + r.width + "x" + r.height + " at (" + r.x + "," + r.y + ")");
+                        SessionConfigIO.writeToDirectory(directory, config);
+                    } else {
+                        IJ.log("  No rectangle ROI drawn. Skipping crop.");
+                        config.cropEnabled = false;
+                    }
+                } else {
+                    IJ.log("  Crop skipped by user.");
+                    config.cropEnabled = false;
+                }
+                proj.close();
+            }
+        } else if (config.cropEnabled && config.cropX >= 0) {
+            IJ.log("  Using saved crop region: " + config.cropWidth + "x" + config.cropHeight
+                    + " at (" + config.cropX + "," + config.cropY + ")");
+        }
+
         for (int f = 0; f < tifFiles.length; f++) {
             String fileName = tifFiles[f];
             String filePath = directory + fileName;
@@ -111,6 +165,24 @@ public class PreprocessingAnalysis implements Analysis {
             IJ.log("  Loaded: " + imp.getWidth() + "x" + imp.getHeight()
                     + " x " + imp.getStackSize() + " frames");
 
+            // Step 0: Crop
+            if (config.cropEnabled && config.cropX >= 0) {
+                IJ.log("  Step 0: Crop (" + config.cropWidth + "x" + config.cropHeight + ")");
+                ImageStack croppedStack = new ImageStack(config.cropWidth, config.cropHeight);
+                ImageStack srcStack = imp.getStack();
+                for (int s = 1; s <= srcStack.getSize(); s++) {
+                    ImageProcessor slice = srcStack.getProcessor(s);
+                    slice.setRoi(config.cropX, config.cropY, config.cropWidth, config.cropHeight);
+                    croppedStack.addSlice(srcStack.getSliceLabel(s), slice.crop());
+                }
+                ImagePlus cropped = new ImagePlus(imp.getTitle(), croppedStack);
+                cropped.setCalibration(imp.getCalibration().copy());
+                imp.close();
+                imp = cropped;
+            } else {
+                IJ.log("  Step 0: Crop — skipped");
+            }
+
             // Step 1: Frame Binning
             if (config.binningEnabled && config.binFactor > 1) {
                 IJ.log("  Step 1: Frame binning (factor=" + config.binFactor
@@ -128,8 +200,14 @@ public class PreprocessingAnalysis implements Analysis {
 
             // Step 2: Motion Correction
             if (config.motionCorrectionEnabled) {
-                IJ.log("  Step 2: Motion correction (ref=" + config.motionCorrectionReference + ")");
-                ImagePlus corrected = MotionCorrector.correct(imp, config.motionCorrectionReference);
+                ImagePlus corrected;
+                if ("SIFT".equalsIgnoreCase(config.motionCorrectionMethod)) {
+                    IJ.log("  Step 2: Motion correction (SIFT)");
+                    corrected = MotionCorrector.correctWithSIFT(imp);
+                } else {
+                    IJ.log("  Step 2: Motion correction (Cross-Correlation, ref=" + config.motionCorrectionReference + ")");
+                    corrected = MotionCorrector.correct(imp, config.motionCorrectionReference);
+                }
                 if (corrected != imp) {
                     imp.close();
                     imp = corrected;
@@ -283,6 +361,12 @@ public class PreprocessingAnalysis implements Analysis {
         final JComboBox<String> reporterCombo = dlg.addChoice("Reporter Type", reporterTypes, config.reporterType);
         dlg.addNumericField("Frame Interval (minutes)", config.frameIntervalMin, 1);
 
+        // --- Crop ---
+        dlg.addSpacer(4);
+        dlg.addHeader("Crop");
+        dlg.addToggle("Crop images to sample region", config.cropEnabled);
+        dlg.addHelpText("Draw a rectangle on the first image to exclude empty well space.");
+
         // --- Frame Binning ---
         dlg.addSpacer(4);
         dlg.addHeader("Frame Binning");
@@ -295,9 +379,12 @@ public class PreprocessingAnalysis implements Analysis {
         dlg.addSpacer(4);
         dlg.addHeader("Motion Correction");
         dlg.addToggle("Enable", config.motionCorrectionEnabled);
+        String[] mcMethods = {"SIFT", "Cross-Correlation"};
+        dlg.addChoice("Method", mcMethods, config.motionCorrectionMethod);
         String[] refMethods = {"Mean Projection", "Median Projection", "First Frame"};
         String currentRef = refToDisplay(config.motionCorrectionReference);
-        dlg.addChoice("Reference", refMethods, currentRef);
+        dlg.addChoice("Reference (for Cross-Correlation)", refMethods, currentRef);
+        dlg.addHelpText("SIFT is recommended — robust to intensity changes. Cross-Correlation is faster but translation-only.");
 
         // --- Background Subtraction ---
         dlg.addSpacer(4);
@@ -354,12 +441,19 @@ public class PreprocessingAnalysis implements Analysis {
         config.reporterType = dlg.getNextChoice();         // Reporter Type
         config.frameIntervalMin = dlg.getNextNumber();     // Frame Interval
 
+        config.cropEnabled = dlg.getNextBoolean();           // Crop Enable
+        // Reset crop coords if re-enabled so user gets prompted again
+        if (config.cropEnabled) {
+            config.cropX = -1;
+        }
+
         config.binningEnabled = dlg.getNextBoolean();      // Binning Enable
         config.binFactor = Math.max(1, (int) dlg.getNextNumber()); // Bin Factor
         config.binMethod = dlg.getNextChoice();            // Bin Method
 
         config.motionCorrectionEnabled = dlg.getNextBoolean(); // Motion Enable
-        config.motionCorrectionReference = displayToRef(dlg.getNextChoice()); // Reference
+        config.motionCorrectionMethod = dlg.getNextChoice();  // Motion Method (SIFT or Cross-Correlation)
+        config.motionCorrectionReference = displayToRef(dlg.getNextChoice()); // Reference (for Cross-Correlation)
 
         config.backgroundMethod = dlg.getNextChoice();     // BG Method
         config.backgroundRadius = dlg.getNextNumber();     // BG Radius

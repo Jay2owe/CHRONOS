@@ -3,20 +3,90 @@ package chronos.preprocessing;
 import ij.IJ;
 import ij.ImagePlus;
 import ij.ImageStack;
+import ij.WindowManager;
 import ij.plugin.ZProjector;
 import ij.process.FHT;
 import ij.process.FloatProcessor;
 import ij.process.ImageProcessor;
 
 /**
- * FFT-based cross-correlation motion correction.
- * Computes translational shifts via normalized cross-correlation in the frequency domain
- * and applies subpixel-accurate translation with bilinear interpolation.
+ * Motion correction for time-lapse stacks.
+ * Supports SIFT-based registration (Fiji built-in, robust to intensity changes)
+ * and FFT cross-correlation (simpler, translation-only).
  */
 public class MotionCorrector {
 
     /**
-     * Correct translational drift in a time-lapse stack.
+     * Correct drift using SIFT feature-based alignment.
+     * Uses Fiji's built-in "Linear Stack Alignment with SIFT" plugin.
+     * Handles rotation and is robust to intensity changes from circadian rhythms.
+     *
+     * @param imp input stack
+     * @return motion-corrected stack (new ImagePlus, or same if SIFT unavailable)
+     */
+    public static ImagePlus correctWithSIFT(ImagePlus imp) {
+        int nSlices = imp.getStackSize();
+        if (nSlices <= 1) {
+            return imp;
+        }
+
+        IJ.log("  Running SIFT alignment (" + nSlices + " frames)...");
+
+        // SIFT requires the image to be visible
+        boolean wasVisible = imp.getWindow() != null;
+        if (!wasVisible) {
+            imp.show();
+        }
+
+        try {
+            // Run Fiji's Linear Stack Alignment with SIFT
+            // Rigid transformation = translation + rotation (best for organotypic slices)
+            IJ.run(imp, "Linear Stack Alignment with SIFT",
+                    "initial_gaussian_blur=1.60 "
+                    + "steps_per_scale_octave=3 "
+                    + "minimum_image_size=64 "
+                    + "maximum_image_size=1024 "
+                    + "feature_descriptor_size=4 "
+                    + "feature_descriptor_orientation_bins=8 "
+                    + "closest/next_closest_ratio=0.92 "
+                    + "maximal_alignment_error=25 "
+                    + "inlier_ratio=0.05 "
+                    + "expected_transformation=Rigid "
+                    + "interpolate");
+
+            // SIFT creates a new window with the aligned result
+            ImagePlus aligned = ij.WindowManager.getCurrentImage();
+            if (aligned != null && aligned != imp) {
+                aligned.setTitle(imp.getTitle() + "_registered");
+                aligned.setCalibration(imp.getCalibration().copy());
+
+                // Hide the aligned image if we're running headless-style
+                if (!wasVisible) {
+                    imp.hide();
+                    aligned.hide();
+                }
+
+                IJ.log("  SIFT alignment complete.");
+                return aligned;
+            } else {
+                IJ.log("  WARNING: SIFT alignment did not produce output. Using original.");
+                if (!wasVisible) {
+                    imp.hide();
+                }
+                return imp;
+            }
+        } catch (Exception e) {
+            IJ.log("  WARNING: SIFT alignment failed (" + e.getClass().getSimpleName()
+                    + ": " + e.getMessage() + "). Falling back to cross-correlation.");
+            if (!wasVisible) {
+                imp.hide();
+            }
+            return correct(imp, "mean");
+        }
+    }
+
+    /**
+     * Correct translational drift using FFT cross-correlation.
      *
      * @param imp       input stack
      * @param refMethod "first", "mean", or "median" — how to compute reference frame
