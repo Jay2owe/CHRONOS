@@ -32,6 +32,7 @@
 - 4 = Rhythm Analysis (`chronos.rhythm.RhythmAnalysis`)
 - 5 = Visualization (`chronos.visualization.VisualizationAnalysis`)
 - 6 = Export (`chronos.export.ExportAnalysis`)
+- 7 = Cell Tracking (`chronos.tracking.TrackingAnalysis`) — optional, requires TrackMate + StarDist
 
 ## Package Structure
 - `chronos/` — Main entry point (`ChronosPipeline`, `Analysis` interface)
@@ -41,14 +42,42 @@
 - `chronos/preprocessing/` — Crop, frame binning, motion correction (SIFT + cross-correlation), background subtraction, bleach/decay correction, spatial/temporal filters
 - `chronos/roi/` — ROI definition, grid generation, D/V split, auto-boundary detection
 - `chronos/extraction/` — Trace extraction, baseline calculation, dF/F, Z-score
-- `chronos/rhythm/` — FFT, autocorrelation, Lomb-Scargle, cosinor fitting, wavelet CWT, Rayleigh test
+- `chronos/rhythm/` — FFT, autocorrelation, Lomb-Scargle, cosinor fitting, wavelet CWT, JTK_CYCLE, Rayleigh test, CircaCompare
+- `chronos/tracking/` — TrackMate + StarDist cell tracking, motility metrics (speed, displacement, area, MSD)
 - `chronos/visualization/` — Time-series plots, kymographs, spatial maps, polar plots, scalograms, dashboard
 - `chronos/export/` — Excel export, CSV consolidation, summary statistics
 
 ## Key Dependencies (all provided scope)
 - `net.imagej:ij` — ImageJ 1.x core
-- `org.apache.commons:commons-math3:3.6.1` — Curve fitting, FFT, LevenbergMarquardt
+- `org.apache.commons:commons-math3:3.6.1` — Curve fitting, FFT, LevenbergMarquardt, LOESS
 - `org.apache.poi:poi-ooxml:3.17` — Excel export
+- `sc.fiji:TrackMate:7.14.0` — Cell tracking (optional, runtime-detected)
+- `sc.fiji:TrackMate-StarDist:1.2.1` — AI cell detection (optional, runtime-detected)
+
+## Rhythm Analysis Methods
+- **FFT** — Fast Fourier Transform with Hann window
+- **Autocorrelation** — Normalized ACF with rhythmicity index
+- **Lomb-Scargle** — Non-uniform sampling, significance testing
+- **Wavelet CWT** — Time-resolved period/amplitude/phase via Morlet wavelet
+- **JTK_CYCLE** — Non-parametric rank-based rhythmicity test (Hughes et al. 2010)
+- **Cosinor fitting** — Standard or damped sinusoidal model via LevenbergMarquardt
+- **CircaCompare** — Statistical comparison of rhythm parameters between ROI groups
+- **Rayleigh test** — Phase coherence across ROIs
+
+## Detrending Methods
+- None, Linear, Quadratic, Cubic (polynomial)
+- **Sinc Filter** — FFT-based ideal bandpass (pyBOAT-style)
+- **EMD** — Empirical Mode Decomposition (adaptive, no assumptions about trend shape)
+- **LOESS** — Locally weighted polynomial regression
+
+## Cell Tracking (Module 7)
+- Uses TrackMate with StarDist for AI cell detection per frame
+- LAP tracker links cells across time with gap-closing
+- Thread-safe via ReentrantLock (TrackMate uses global state)
+- Computes per-cell motility time-series: speed, area, displacement, MSD
+- Output to `.circadian/tracking/` as CSV trace files
+- Requires TrackMate + StarDist + CSBDeep update sites in Fiji
+- Degrades gracefully if not installed (runtime reflection check)
 
 ## Incucyte Import
 - Auto-detects Incucyte individual frame TIFs matching `{PREFIX}_{DD}d{HH}h{MM}m.tif`
@@ -74,7 +103,7 @@
 
 ## Data Conventions
 - `.circadian/` session directory per experiment folder
-- Subdirectories: `assembled/`, `corrected/`, `ROIs/`, `traces/`, `rhythm/`, `visualizations/`, `exports/`
+- Subdirectories: `assembled/`, `corrected/`, `ROIs/`, `traces/`, `rhythm/`, `visualizations/`, `exports/`, `tracking/`
 - Config persisted in `.circadian/config.txt` (key=value format)
 - ROIs saved as `.zip` in `.circadian/ROIs/`
 - ROI Definition always runs interactively (never headless)
