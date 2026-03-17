@@ -101,5 +101,28 @@
 			<version>3.17</version>
 			<scope>provided</scope>
 		</dependency>
+
+		<!-- TrackMate: cell tracking (optional, detected at runtime) -->
+		<dependency>
+			<groupId>sc.fiji</groupId>
+			<artifactId>TrackMate</artifactId>
+			<version>7.14.0</version>
+			<scope>provided</scope>
+		</dependency>
+
+		<!-- TrackMate-StarDist: AI cell detector (optional, detected at runtime) -->
+		<dependency>
+			<groupId>sc.fiji</groupId>
+			<artifactId>TrackMate-StarDist</artifactId>
+			<version>1.2.1</version>
+			<scope>provided</scope>
+		</dependency>
+
+		<!-- ImgLib2 for ImgPlus (TrackMate dependency) -->
+		<dependency>
+			<groupId>net.imglib2</groupId>
+			<artifactId>imglib2</artifactId>
+			<scope>provided</scope>
+		</dependency>
 	</dependencies>
 </project>

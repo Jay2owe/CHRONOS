@@ -8,6 +8,7 @@ import chronos.io.IncucyteImporter;
 import chronos.preprocessing.PreprocessingAnalysis;
 import chronos.rhythm.RhythmAnalysis;
 import chronos.roi.RoiDefinitionAnalysis;
+import chronos.tracking.TrackingAnalysis;
 import chronos.ui.PipelineDialog;
 import chronos.visualization.VisualizationAnalysis;
 
@@ -33,7 +34,8 @@ public class ChronosPipeline implements PlugIn {
         "Signal Extraction",
         "Rhythm Analysis",
         "Visualization",
-        "Export"
+        "Export",
+        "Cell Tracking"
     };
 
     /** Descriptions shown under each module toggle in the pipeline dialog. */
@@ -41,9 +43,10 @@ public class ChronosPipeline implements PlugIn {
         "Crop, frame binning, motion correction (SIFT/cross-correlation), background subtraction, bleach/decay correction, spatial and temporal filtering. Saves corrected stacks to .circadian/corrected/.",
         "Interactively draw regions of interest on mean/max projections for each image. Supports whole SCN outline, dorsal/ventral split, grid overlay, individual cells, custom regions, and auto-boundary detection.",
         "Extracts mean intensity per ROI per frame from corrected stacks. Computes dF/F and optional Z-score traces using configurable baseline (F0) methods. Outputs CSV trace files to .circadian/traces/.",
-        "Estimates circadian period via FFT, autocorrelation, Lomb-Scargle, or wavelet CWT. Fits cosinor model (standard or damped) to each ROI. Computes rhythmicity statistics (F-test, Rayleigh). Outputs to .circadian/rhythm/.",
+        "Estimates circadian period via FFT, autocorrelation, Lomb-Scargle, wavelet CWT, or JTK_CYCLE. Fits cosinor model. CircaCompare compares groups. Outputs to .circadian/rhythm/.",
         "Generates time-series plots with cosinor overlays, kymographs, phase/period/amplitude spatial maps, raster plots, polar phase plots, wavelet scalograms, and a summary dashboard.",
-        "Consolidates all CSVs and visualizations. Exports a formatted Excel workbook (.xlsx) with experiment parameters, traces, rhythm summary, and grouped statistics."
+        "Consolidates all CSVs and visualizations. Exports a formatted Excel workbook (.xlsx) with experiment parameters, traces, rhythm summary, and grouped statistics.",
+        "Uses TrackMate + StarDist AI to detect and track cells (e.g. microglia) across time. Computes speed, area, displacement time-series for rhythm analysis. Requires TrackMate + StarDist update sites."
     };
 
     @Override
@@ -106,7 +109,7 @@ public class ChronosPipeline implements PlugIn {
 
         dlg.addHeader("Pipeline Modules");
         dlg.addHelpText("Select which modules to run. Modules execute in order.");
-        boolean[] defaultModuleStates = {true, true, true, true, true, true};
+        boolean[] defaultModuleStates = {true, true, true, true, true, true, false};
         for (int i = 0; i < MODULE_NAMES.length; i++) {
             dlg.addToggle((i + 1) + ". " + MODULE_NAMES[i], defaultModuleStates[i]);
             dlg.addHelpText(MODULE_DESCRIPTIONS[i]);
@@ -190,7 +193,7 @@ public class ChronosPipeline implements PlugIn {
      * Creates the .circadian session directory and all subdirectories.
      */
     private void createSessionDirectories(String directory) {
-        String[] subdirs = {"corrected", "projections", "ROIs", "traces", "rhythm", "visualizations", "exports"};
+        String[] subdirs = {"corrected", "projections", "ROIs", "traces", "rhythm", "visualizations", "exports", "tracking"};
         for (String sub : subdirs) {
             File d = new File(directory, ".circadian" + File.separator + sub);
             if (!d.exists()) {
@@ -210,6 +213,7 @@ public class ChronosPipeline implements PlugIn {
         list.add(new RhythmAnalysis());             // 4
         list.add(new VisualizationAnalysis());      // 5
         list.add(new ExportAnalysis());             // 6
+        list.add(new TrackingAnalysis());           // 7
         return list;
     }
 

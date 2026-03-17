@@ -110,6 +110,13 @@ public class SessionConfigIO {
         cfg.significanceThreshold = getDouble(props, "significanceThreshold", cfg.significanceThreshold);
         cfg.runCircaCompare = getBool(props, "runCircaCompare", cfg.runCircaCompare);
 
+        // Cell Tracking
+        cfg.trackingEnabled = getBool(props, "trackingEnabled", cfg.trackingEnabled);
+        cfg.trackMaxLinkDistance = getDouble(props, "trackMaxLinkDistance", cfg.trackMaxLinkDistance);
+        cfg.trackMaxGapFrames = getInt(props, "trackMaxGapFrames", cfg.trackMaxGapFrames);
+        cfg.trackGapClosingDistance = getDouble(props, "trackGapClosingDistance", cfg.trackGapClosingDistance);
+        cfg.trackMinDurationFrames = getInt(props, "trackMinDurationFrames", cfg.trackMinDurationFrames);
+
         // Visualization
         cfg.vizTimeSeries = getBool(props, "vizTimeSeries", cfg.vizTimeSeries);
         cfg.vizKymograph = getBool(props, "vizKymograph", cfg.vizKymograph);
@@ -219,6 +226,14 @@ public class SessionConfigIO {
             pw.println("cosinorModel=" + cfg.cosinorModel);
             pw.println("significanceThreshold=" + cfg.significanceThreshold);
             pw.println("runCircaCompare=" + cfg.runCircaCompare);
+            pw.println();
+
+            pw.println("# Cell Tracking");
+            pw.println("trackingEnabled=" + cfg.trackingEnabled);
+            pw.println("trackMaxLinkDistance=" + cfg.trackMaxLinkDistance);
+            pw.println("trackMaxGapFrames=" + cfg.trackMaxGapFrames);
+            pw.println("trackGapClosingDistance=" + cfg.trackGapClosingDistance);
+            pw.println("trackMinDurationFrames=" + cfg.trackMinDurationFrames);
             pw.println();
 
             pw.println("# Visualization");

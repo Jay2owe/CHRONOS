@@ -84,6 +84,18 @@ public class SessionConfig {
     /** Run CircaCompare group comparison (requires D/V or multi-group ROIs) */
     public boolean runCircaCompare = false;
 
+    // --- Cell Tracking ---
+    /** Enable cell tracking module (requires TrackMate + StarDist) */
+    public boolean trackingEnabled = false;
+    /** Max linking distance between frames (pixels) */
+    public double trackMaxLinkDistance = 30.0;
+    /** Max gap for gap-closing (frames) */
+    public int trackMaxGapFrames = 2;
+    /** Max distance for gap-closing links (pixels) */
+    public double trackGapClosingDistance = 40.0;
+    /** Minimum track duration in frames (filter short tracks) */
+    public int trackMinDurationFrames = 10;
+
     // --- Visualization ---
     public boolean vizTimeSeries = true;
     public boolean vizKymograph = true;
