@@ -4,6 +4,7 @@ import chronos.config.SessionConfig;
 import chronos.config.SessionConfigIO;
 import chronos.export.ExportAnalysis;
 import chronos.extraction.SignalExtractionAnalysis;
+import chronos.io.IncucyteImporter;
 import chronos.preprocessing.PreprocessingAnalysis;
 import chronos.rhythm.RhythmAnalysis;
 import chronos.roi.RoiDefinitionAnalysis;
@@ -17,6 +18,7 @@ import java.io.File;
 import java.io.FilenameFilter;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Main entry point for the CHRONOS circadian rhythm analysis plugin.
@@ -61,9 +63,29 @@ public class ChronosPipeline implements PlugIn {
             return;
         }
 
-        IJ.log("Found " + tifFiles.length + " TIF file(s) in " + directory);
-        for (String f : tifFiles) {
-            IJ.log("  - " + f);
+        // Check if this is an Incucyte directory with individual frames
+        if (IncucyteImporter.isIncucyteDirectory(dir)) {
+            Map<String, List<IncucyteImporter.IncucyteFrame>> groups =
+                    IncucyteImporter.groupAndSort(dir);
+            int totalFrames = 0;
+            for (List<IncucyteImporter.IncucyteFrame> frames : groups.values()) {
+                totalFrames += frames.size();
+            }
+            String[] nonIncucyte = IncucyteImporter.getNonIncucyteTifs(dir);
+            IJ.log("Incucyte image sequence detected in " + directory);
+            IJ.log("  " + totalFrames + " individual frames across " + groups.size() + " series");
+            for (Map.Entry<String, List<IncucyteImporter.IncucyteFrame>> entry : groups.entrySet()) {
+                IJ.log("    " + entry.getKey() + ": " + entry.getValue().size() + " frames");
+            }
+            if (nonIncucyte.length > 0) {
+                IJ.log("  " + nonIncucyte.length + " non-Incucyte TIF(s) also present");
+            }
+            IJ.log("  Stacks will be assembled during pre-processing.");
+        } else {
+            IJ.log("Found " + tifFiles.length + " TIF file(s) in " + directory);
+            for (String f : tifFiles) {
+                IJ.log("  - " + f);
+            }
         }
 
         // 3. Load existing config or create default

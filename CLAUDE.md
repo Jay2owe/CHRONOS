@@ -8,12 +8,13 @@
 ## Build And Deploy
 - Build from `CHRONOS/`.
 - Required build command:
-  - `export JAVA_HOME="/c/Program Files/Java/jdk-25.0.2"`
+  - `export JAVA_HOME` to a JDK 17+ installation (e.g. Eclipse Adoptium)
   - `bash mvnw clean package -Denforcer.skip=true`
 - Built artifact: `target/CHRONOS-0.1.0-SNAPSHOT.jar`
-- **Deploy to OneDrive Fiji** (not Dropbox):
-  - `C:/Users/jamie/OneDrive - Imperial College London/ImageJ/Fiji.app/plugins/`
-- Launch: `ImageJ-win64.exe` inside the Fiji app folder.
+- **Deploy to both Fiji installations:**
+  - OneDrive: `~/OneDrive - Imperial College London/ImageJ/Fiji.app/plugins/`
+  - Dropbox: `~/UK Dementia Research Institute Dropbox/Brancaccio Lab/Jamie/Fiji.app/plugins/`
+- Launch: `ImageJ-win64.exe` inside either Fiji app folder.
 
 ## Build Constraints
 - Maven parent: `pom-scijava:31.1.0`; output must stay Java 8 compatible.
@@ -36,7 +37,7 @@
 - `chronos/` — Main entry point (`ChronosPipeline`, `Analysis` interface)
 - `chronos/config/` — `SessionConfig`, `SessionConfigIO`
 - `chronos/ui/` — `PipelineDialog`, `ToggleSwitch` (reused from IHF pipeline)
-- `chronos/io/` — `CsvReader`, `CsvWriter`, `RoiIO`
+- `chronos/io/` — `CsvReader`, `CsvWriter`, `RoiIO`, `IncucyteImporter`
 - `chronos/preprocessing/` — Crop, frame binning, motion correction (SIFT + cross-correlation), background subtraction, bleach/decay correction, spatial/temporal filters
 - `chronos/roi/` — ROI definition, grid generation, D/V split, auto-boundary detection
 - `chronos/extraction/` — Trace extraction, baseline calculation, dF/F, Z-score
@@ -48,6 +49,14 @@
 - `net.imagej:ij` — ImageJ 1.x core
 - `org.apache.commons:commons-math3:3.6.1` — Curve fitting, FFT, LevenbergMarquardt
 - `org.apache.poi:poi-ooxml:3.17` — Excel export
+
+## Incucyte Import
+- Auto-detects Incucyte individual frame TIFs matching `{PREFIX}_{DD}d{HH}h{MM}m.tif`
+- Groups by prefix (e.g. `VID22_D2_1`), sorts chronologically, assembles into stacks
+- Uses ImageJ's `FolderOpener` (Image Sequence) for efficient assembly
+- Assembled stacks saved to `.circadian/assembled/`; individual frames deleted after assembly
+- Runs automatically at the start of Module 1 (Pre-processing) when Incucyte frames are detected
+- Frame interval auto-derived from timestamps
 
 ## Pre-processing Order
 1. Crop (interactive rectangle on first image, saved and reused)
@@ -65,7 +74,7 @@
 
 ## Data Conventions
 - `.circadian/` session directory per experiment folder
-- Subdirectories: `corrected/`, `ROIs/`, `traces/`, `rhythm/`, `visualizations/`, `exports/`
+- Subdirectories: `assembled/`, `corrected/`, `ROIs/`, `traces/`, `rhythm/`, `visualizations/`, `exports/`
 - Config persisted in `.circadian/config.txt` (key=value format)
 - ROIs saved as `.zip` in `.circadian/ROIs/`
 - ROI Definition always runs interactively (never headless)

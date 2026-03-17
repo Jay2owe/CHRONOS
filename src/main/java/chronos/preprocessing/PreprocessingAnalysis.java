@@ -3,6 +3,7 @@ package chronos.preprocessing;
 import chronos.Analysis;
 import chronos.config.SessionConfig;
 import chronos.config.SessionConfigIO;
+import chronos.io.IncucyteImporter;
 import chronos.ui.PipelineDialog;
 import chronos.ui.ToggleSwitch;
 
@@ -21,6 +22,8 @@ import java.awt.event.ItemEvent;
 import java.awt.event.ItemListener;
 import java.io.File;
 import java.io.FilenameFilter;
+import java.util.List;
+import java.util.Map;
 
 /**
  * Module 1: Pre-processing.
@@ -73,9 +76,99 @@ public class PreprocessingAnalysis implements Analysis {
             SessionConfigIO.writeToDirectory(directory, config);
         }
 
-        // Scan for TIF files
+        // --- Incucyte Detection & Assembly ---
         File dir = new File(directory);
-        String[] tifFiles = dir.list(new FilenameFilter() {
+        String assembledDir = directory + ".circadian" + File.separator + "assembled" + File.separator;
+        boolean useAssembledDir = false;
+
+        if (IncucyteImporter.isIncucyteDirectory(dir)) {
+            Map<String, List<IncucyteImporter.IncucyteFrame>> groups =
+                    IncucyteImporter.groupAndSort(dir);
+
+            // Check if stacks have already been assembled
+            File assembledFile = new File(assembledDir);
+            boolean alreadyAssembled = false;
+            if (assembledFile.exists()) {
+                String[] existing = assembledFile.list();
+                if (existing != null && existing.length > 0) {
+                    alreadyAssembled = true;
+                }
+            }
+
+            if (!alreadyAssembled) {
+                IJ.log("");
+                IJ.log("Incucyte image sequence detected!");
+                IJ.log("  Found " + groups.size() + " series:");
+                int totalFrames = 0;
+                for (Map.Entry<String, List<IncucyteImporter.IncucyteFrame>> entry : groups.entrySet()) {
+                    int nFrames = entry.getValue().size();
+                    totalFrames += nFrames;
+                    List<IncucyteImporter.IncucyteFrame> frames = entry.getValue();
+                    double spanMinutes = frames.get(frames.size() - 1).totalMinutes - frames.get(0).totalMinutes;
+                    double spanHours = spanMinutes / 60.0;
+                    IJ.log("    " + entry.getKey() + ": " + nFrames + " frames, "
+                            + String.format("%.1f", spanHours) + " hours");
+                }
+
+                if (!headless) {
+                    PipelineDialog incuDlg = new PipelineDialog("CHRONOS — Incucyte Import");
+                    incuDlg.addHeader("Incucyte Sequence Detected");
+                    incuDlg.addMessage("Found <b>" + totalFrames + "</b> individual Incucyte frames "
+                            + "across <b>" + groups.size() + "</b> series.");
+                    incuDlg.addMessage("These will be assembled into time-ordered stacks "
+                            + "before pre-processing.");
+                    incuDlg.addSpacer(4);
+                    for (Map.Entry<String, List<IncucyteImporter.IncucyteFrame>> entry : groups.entrySet()) {
+                        List<IncucyteImporter.IncucyteFrame> frames = entry.getValue();
+                        double spanHours = (frames.get(frames.size() - 1).totalMinutes
+                                - frames.get(0).totalMinutes) / 60.0;
+                        incuDlg.addMessage(entry.getKey() + ": " + frames.size() + " frames, "
+                                + String.format("%.1f", spanHours) + "h span");
+                    }
+                    incuDlg.addSpacer(4);
+                    incuDlg.addHeader("Options");
+                    incuDlg.addToggle("Assemble stacks", true);
+
+                    if (!incuDlg.showDialog()) {
+                        return false;
+                    }
+
+                    boolean doAssemble = incuDlg.getNextBoolean();
+                    if (!doAssemble) {
+                        IJ.log("  Incucyte assembly skipped by user.");
+                    } else {
+                        IJ.log("");
+                        IJ.log("Assembling Incucyte frames into stacks...");
+                        List<String> assembled = IncucyteImporter.assembleStacks(
+                                dir, assembledDir, config.frameIntervalMin);
+                        IJ.log("Assembly complete: " + assembled.size() + " stack(s) created.");
+                        useAssembledDir = true;
+                    }
+                } else {
+                    // Headless mode: auto-assemble
+                    IJ.log("Assembling Incucyte frames into stacks (headless)...");
+                    List<String> assembled = IncucyteImporter.assembleStacks(
+                            dir, assembledDir, config.frameIntervalMin);
+                    IJ.log("Assembly complete: " + assembled.size() + " stack(s) created.");
+                    useAssembledDir = true;
+                }
+            } else {
+                IJ.log("Incucyte stacks already assembled in .circadian/assembled/");
+                useAssembledDir = true;
+            }
+        }
+
+        // Determine which directory to scan for TIF stacks
+        final String processDir;
+        if (useAssembledDir) {
+            processDir = assembledDir;
+        } else {
+            processDir = directory;
+        }
+
+        // Scan for TIF files
+        File scanDir = new File(processDir);
+        String[] tifFiles = scanDir.list(new FilenameFilter() {
             @Override
             public boolean accept(File d, String name) {
                 String lower = name.toLowerCase();
@@ -98,7 +191,7 @@ public class PreprocessingAnalysis implements Analysis {
 
         // Interactive crop: if enabled and not yet defined, show first image for user to draw crop rectangle
         if (config.cropEnabled && config.cropX < 0) {
-            String firstPath = directory + tifFiles[0];
+            String firstPath = processDir + tifFiles[0];
             IJ.log("");
             IJ.log("Crop: Loading first image for crop region selection...");
             ImagePlus firstImp = IJ.openImage(firstPath);
@@ -149,7 +242,7 @@ public class PreprocessingAnalysis implements Analysis {
 
         for (int f = 0; f < tifFiles.length; f++) {
             String fileName = tifFiles[f];
-            String filePath = directory + fileName;
+            String filePath = processDir + fileName;
             IJ.log("");
             IJ.log("[" + (f + 1) + "/" + tifFiles.length + "] " + fileName);
 
@@ -240,6 +333,7 @@ public class PreprocessingAnalysis implements Analysis {
             // Step 4: Bleach / Decay Correction
             if (!"None".equalsIgnoreCase(config.bleachMethod)) {
                 IJ.log("  Step 4: Bleach correction (" + config.bleachMethod + ")");
+
                 double[] meanTrace = BleachCorrector.extractMeanTrace(imp);
                 double[] factors;
 
