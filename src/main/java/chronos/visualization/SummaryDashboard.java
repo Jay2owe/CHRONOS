@@ -21,8 +21,9 @@ import java.util.List;
  */
 public class SummaryDashboard {
 
-    private static final int PANEL_W = 400;
-    private static final int PANEL_H = 350;
+    private static final int S = 3; // DPI scale factor
+    private static final int PANEL_W = 400 * S;
+    private static final int PANEL_H = 350 * S;
     private static final int TOTAL_W = PANEL_W * 2;
     private static final int TOTAL_H = PANEL_H * 2;
     private static final Color BG_COLOR = Color.WHITE;
@@ -70,7 +71,7 @@ public class SummaryDashboard {
 
         // Panel borders
         g2.setColor(Color.LIGHT_GRAY);
-        g2.setStroke(new BasicStroke(1f));
+        g2.setStroke(new BasicStroke(1f * S));
         g2.drawLine(PANEL_W, 0, PANEL_W, TOTAL_H);
         g2.drawLine(0, PANEL_H, TOTAL_W, PANEL_H);
 
@@ -84,10 +85,10 @@ public class SummaryDashboard {
     private static void drawMeanTrace(Graphics2D g2, int ox, int oy,
                                        double[] time, double[][] traces,
                                        List<RhythmResult> results) {
-        int plotL = ox + 55;
-        int plotT = oy + 35;
-        int plotW = PANEL_W - 75;
-        int plotH = PANEL_H - 60;
+        int plotL = ox + 55 * S;
+        int plotT = oy + 35 * S;
+        int plotW = PANEL_W - 75 * S;
+        int plotH = PANEL_H - 60 * S;
 
         // Compute mean trace across rhythmic ROIs
         int nFrames = (time != null) ? time.length : 0;
@@ -147,44 +148,56 @@ public class SummaryDashboard {
         double rangeY = maxY - minY;
         if (rangeY <= 0) rangeY = 1;
         double maxTime = time[nFrames - 1];
+        double xMax = Math.ceil(maxTime / 24.0) * 24.0;
+        if (xMax < 24) xMax = 24;
 
         // Title
         g2.setColor(Color.BLACK);
-        g2.setFont(new Font("SansSerif", Font.BOLD, 12));
-        g2.drawString("Mean dF/F Trace + Cosinor Fit", plotL, oy + 20);
+        g2.setFont(new Font("SansSerif", Font.BOLD, 12 * S));
+        g2.drawString("Mean dF/F Trace + Cosinor Fit", plotL, oy + 20 * S);
 
         // Axes
         g2.setColor(Color.BLACK);
-        g2.setStroke(new BasicStroke(1f));
+        g2.setStroke(new BasicStroke(1f * S));
         g2.drawLine(plotL, plotT, plotL, plotT + plotH);
         g2.drawLine(plotL, plotT + plotH, plotL + plotW, plotT + plotH);
 
+        // 24h grid lines
+        g2.setColor(new Color(220, 220, 220));
+        g2.setStroke(new BasicStroke(0.5f * S));
+        for (double x24 = 24; x24 < xMax; x24 += 24) {
+            int xPos = plotL + (int) (x24 / xMax * plotW);
+            g2.drawLine(xPos, plotT, xPos, plotT + plotH);
+        }
+
         // Axis labels
-        g2.setFont(new Font("SansSerif", Font.PLAIN, 10));
-        g2.drawString("Time (h)", plotL + plotW / 2 - 20, plotT + plotH + 22);
+        g2.setColor(Color.BLACK);
+        g2.setFont(new Font("SansSerif", Font.BOLD, 10 * S));
+        FontMetrics fmBold = g2.getFontMetrics();
+        g2.drawString("Time (h)", plotL + plotW / 2 - fmBold.stringWidth("Time (h)") / 2,
+                plotT + plotH + 22 * S);
         Graphics2D g2r = (Graphics2D) g2.create();
         g2r.rotate(-Math.PI / 2);
-        g2r.drawString("dF/F", -(plotT + plotH / 2 + 10), ox + 14);
+        g2r.drawString("dF/F", -(plotT + plotH / 2 + fmBold.stringWidth("dF/F") / 2), ox + 14 * S);
         g2r.dispose();
 
-        // Tick labels
+        // X tick labels at 24h intervals
+        g2.setFont(new Font("SansSerif", Font.PLAIN, 10 * S));
         FontMetrics fm = g2.getFontMetrics();
-        int nXTicks = 5;
-        for (int i = 0; i <= nXTicks; i++) {
-            double t = maxTime * i / nXTicks;
-            int x = plotL + (int) (plotW * i / (double) nXTicks);
-            g2.drawLine(x, plotT + plotH, x, plotT + plotH + 3);
-            String lbl = String.format("%.0f", t);
-            g2.drawString(lbl, x - fm.stringWidth(lbl) / 2, plotT + plotH + 14);
+        for (double t24 = 0; t24 <= xMax; t24 += 24) {
+            int x = plotL + (int) (t24 / xMax * plotW);
+            g2.drawLine(x, plotT + plotH, x, plotT + plotH + 3 * S);
+            String lbl = String.format("%.0f", t24);
+            g2.drawString(lbl, x - fm.stringWidth(lbl) / 2, plotT + plotH + 14 * S);
         }
 
         // Draw mean trace
         g2.setColor(Color.BLUE);
-        g2.setStroke(new BasicStroke(1.5f));
+        g2.setStroke(new BasicStroke(1.5f * S));
         int[] xPts = new int[nFrames];
         int[] yPts = new int[nFrames];
         for (int t = 0; t < nFrames; t++) {
-            xPts[t] = plotL + (int) (time[t] / maxTime * plotW);
+            xPts[t] = plotL + (int) (time[t] / xMax * plotW);
             yPts[t] = plotT + plotH - (int) ((meanTrace[t] - minY) / rangeY * plotH);
         }
         g2.drawPolyline(xPts, yPts, nFrames);
@@ -192,7 +205,7 @@ public class SummaryDashboard {
         // Draw mean fit
         if (countFit > 0) {
             g2.setColor(Color.RED);
-            g2.setStroke(new BasicStroke(2f));
+            g2.setStroke(new BasicStroke(2f * S));
             for (int t = 0; t < nFrames; t++) {
                 yPts[t] = plotT + plotH - (int) ((meanFit[t] - minY) / rangeY * plotH);
             }
@@ -200,13 +213,17 @@ public class SummaryDashboard {
         }
 
         // Legend
-        g2.setFont(new Font("SansSerif", Font.PLAIN, 10));
+        g2.setFont(new Font("SansSerif", Font.PLAIN, 10 * S));
+        int legLineLen = 20 * S;
+        g2.setStroke(new BasicStroke(1.5f * S));
         g2.setColor(Color.BLUE);
-        g2.drawLine(plotL + plotW - 80, plotT + 10, plotL + plotW - 60, plotT + 10);
-        g2.drawString("Mean dF/F", plotL + plotW - 56, plotT + 14);
+        g2.drawLine(plotL + plotW - 80 * S, plotT + 10 * S,
+                plotL + plotW - 80 * S + legLineLen, plotT + 10 * S);
+        g2.drawString("Mean dF/F", plotL + plotW - 56 * S, plotT + 14 * S);
         g2.setColor(Color.RED);
-        g2.drawLine(plotL + plotW - 80, plotT + 24, plotL + plotW - 60, plotT + 24);
-        g2.drawString("Cosinor", plotL + plotW - 56, plotT + 28);
+        g2.drawLine(plotL + plotW - 80 * S, plotT + 24 * S,
+                plotL + plotW - 80 * S + legLineLen, plotT + 24 * S);
+        g2.drawString("Cosinor", plotL + plotW - 56 * S, plotT + 28 * S);
     }
 
     /**
@@ -225,8 +242,10 @@ public class SummaryDashboard {
         double[] phasesArr = new double[phases.size()];
         for (int i = 0; i < phases.size(); i++) phasesArr[i] = phases.get(i);
 
-        // Generate polar plot at panel size
-        ImagePlus polarImg = PolarPlotGenerator.generate(phasesArr, rayleigh, PANEL_W);
+        // Generate polar plot at panel size (PolarPlotGenerator applies its own 3x)
+        // Use base size that will fill the panel after scaling
+        int baseSize = PANEL_W / S;
+        ImagePlus polarImg = PolarPlotGenerator.generate(phasesArr, rayleigh, baseSize);
         if (polarImg != null) {
             Image img = polarImg.getImage();
             g2.drawImage(img, ox, oy, PANEL_W, PANEL_H, null);
@@ -238,19 +257,19 @@ public class SummaryDashboard {
      */
     private static void drawPeriodHistogram(Graphics2D g2, int ox, int oy,
                                              List<RhythmResult> rhythmic) {
-        int plotL = ox + 55;
-        int plotT = oy + 35;
-        int plotW = PANEL_W - 75;
-        int plotH = PANEL_H - 65;
+        int plotL = ox + 55 * S;
+        int plotT = oy + 35 * S;
+        int plotW = PANEL_W - 75 * S;
+        int plotH = PANEL_H - 65 * S;
 
         // Title
         g2.setColor(Color.BLACK);
-        g2.setFont(new Font("SansSerif", Font.BOLD, 12));
-        g2.drawString("Period Distribution", plotL, oy + 20);
+        g2.setFont(new Font("SansSerif", Font.BOLD, 12 * S));
+        g2.drawString("Period Distribution", plotL, oy + 20 * S);
 
         if (rhythmic.isEmpty()) {
-            g2.setFont(new Font("SansSerif", Font.ITALIC, 11));
-            g2.drawString("No rhythmic ROIs", plotL + 40, plotT + plotH / 2);
+            g2.setFont(new Font("SansSerif", Font.ITALIC, 11 * S));
+            g2.drawString("No rhythmic ROIs", plotL + 40 * S, plotT + plotH / 2);
             return;
         }
 
@@ -283,7 +302,7 @@ public class SummaryDashboard {
 
         // Axes
         g2.setColor(Color.BLACK);
-        g2.setStroke(new BasicStroke(1f));
+        g2.setStroke(new BasicStroke(1f * S));
         g2.drawLine(plotL, plotT, plotL, plotT + plotH);
         g2.drawLine(plotL, plotT + plotH, plotL + plotW, plotT + plotH);
 
@@ -294,30 +313,33 @@ public class SummaryDashboard {
             int barH = (int) ((double) counts[i] / maxCount * plotH);
             int bx = plotL + i * barW;
             int by = plotT + plotH - barH;
-            g2.fillRect(bx + 1, by, barW - 2, barH);
+            g2.fillRect(bx + S, by, barW - 2 * S, barH);
             g2.setColor(new Color(50, 100, 150));
-            g2.drawRect(bx + 1, by, barW - 2, barH);
+            g2.drawRect(bx + S, by, barW - 2 * S, barH);
             g2.setColor(new Color(70, 130, 180));
         }
 
         // X-axis labels
         g2.setColor(Color.BLACK);
-        g2.setFont(new Font("SansSerif", Font.PLAIN, 9));
+        g2.setFont(new Font("SansSerif", Font.PLAIN, 9 * S));
         FontMetrics fm = g2.getFontMetrics();
         for (int i = 0; i <= nBins; i += Math.max(1, nBins / 5)) {
             double val = minP + i * binWidth;
             String lbl = String.format("%.1f", val);
             int x = plotL + i * barW;
-            g2.drawString(lbl, x - fm.stringWidth(lbl) / 2, plotT + plotH + 14);
+            g2.drawString(lbl, x - fm.stringWidth(lbl) / 2, plotT + plotH + 14 * S);
         }
 
-        g2.setFont(new Font("SansSerif", Font.PLAIN, 10));
-        g2.drawString("Period (h)", plotL + plotW / 2 - 25, plotT + plotH + 28);
+        g2.setFont(new Font("SansSerif", Font.BOLD, 10 * S));
+        FontMetrics fmBold = g2.getFontMetrics();
+        String xLabel = "Period (h)";
+        g2.drawString(xLabel, plotL + plotW / 2 - fmBold.stringWidth(xLabel) / 2,
+                plotT + plotH + 28 * S);
 
         // Y-axis label
         Graphics2D g2r = (Graphics2D) g2.create();
         g2r.rotate(-Math.PI / 2);
-        g2r.drawString("Count", -(plotT + plotH / 2 + 12), ox + 14);
+        g2r.drawString("Count", -(plotT + plotH / 2 + fmBold.stringWidth("Count") / 2), ox + 14 * S);
         g2r.dispose();
     }
 
@@ -328,16 +350,16 @@ public class SummaryDashboard {
                                          List<RhythmResult> allResults,
                                          List<RhythmResult> rhythmic,
                                          RayleighResult rayleigh) {
-        int tx = ox + 30;
-        int ty = oy + 40;
-        int lineH = 22;
+        int tx = ox + 30 * S;
+        int ty = oy + 40 * S;
+        int lineH = 22 * S;
 
         g2.setColor(Color.BLACK);
-        g2.setFont(new Font("SansSerif", Font.BOLD, 13));
+        g2.setFont(new Font("SansSerif", Font.BOLD, 13 * S));
         g2.drawString("Summary Statistics", tx, ty);
-        ty += lineH + 5;
+        ty += lineH + 5 * S;
 
-        g2.setFont(new Font("SansSerif", Font.PLAIN, 12));
+        g2.setFont(new Font("SansSerif", Font.PLAIN, 12 * S));
 
         int nTotal = allResults.size();
         int nRhythmic = rhythmic.size();
@@ -356,7 +378,7 @@ public class SummaryDashboard {
             }
             double meanP = sumP / nRhythmic;
             double semP = Math.sqrt((sumP2 / nRhythmic - meanP * meanP) / nRhythmic);
-            g2.drawString(String.format("Mean period: %.2f +/- %.2f h", meanP, semP), tx, ty);
+            g2.drawString(String.format("Mean period: %.2f \u00B1 %.2f h", meanP, semP), tx, ty);
             ty += lineH;
 
             // Amplitude stats
@@ -367,7 +389,7 @@ public class SummaryDashboard {
             }
             double meanA = sumA / nRhythmic;
             double semA = Math.sqrt((sumA2 / nRhythmic - meanA * meanA) / nRhythmic);
-            g2.drawString(String.format("Mean amplitude: %.4f +/- %.4f", meanA, semA), tx, ty);
+            g2.drawString(String.format("Mean amplitude: %.4f \u00B1 %.4f", meanA, semA), tx, ty);
             ty += lineH;
 
             // R-squared stats
@@ -376,23 +398,23 @@ public class SummaryDashboard {
                 sumR2 += rr.rSquared;
             }
             double meanR2 = sumR2 / nRhythmic;
-            g2.drawString(String.format("Mean R-squared: %.3f", meanR2), tx, ty);
+            g2.drawString(String.format("Mean R\u00B2: %.3f", meanR2), tx, ty);
             ty += lineH;
         }
 
-        ty += 5;
+        ty += 5 * S;
 
         if (rayleigh != null) {
-            g2.setFont(new Font("SansSerif", Font.BOLD, 12));
+            g2.setFont(new Font("SansSerif", Font.BOLD, 12 * S));
             g2.drawString("Rayleigh Test", tx, ty); ty += lineH;
-            g2.setFont(new Font("SansSerif", Font.PLAIN, 12));
+            g2.setFont(new Font("SansSerif", Font.PLAIN, 12 * S));
             g2.drawString(String.format("R = %.3f", rayleigh.vectorLength), tx, ty); ty += lineH;
             g2.drawString(String.format("p = %.4f", rayleigh.pValue), tx, ty); ty += lineH;
             g2.drawString(String.format("Mean direction = %.1fh", rayleigh.meanDirectionHours),
                     tx, ty); ty += lineH;
 
             // Significance
-            g2.setFont(new Font("SansSerif", Font.BOLD, 12));
+            g2.setFont(new Font("SansSerif", Font.BOLD, 12 * S));
             if (rayleigh.pValue < 0.001) {
                 g2.setColor(new Color(0, 128, 0));
                 g2.drawString("Highly significant (p < 0.001)", tx, ty);
@@ -401,7 +423,7 @@ public class SummaryDashboard {
                 g2.drawString("Significant (p < 0.05)", tx, ty);
             } else {
                 g2.setColor(new Color(180, 0, 0));
-                g2.drawString("Not significant (p >= 0.05)", tx, ty);
+                g2.drawString("Not significant (p \u2265 0.05)", tx, ty);
             }
         }
     }

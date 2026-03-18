@@ -530,10 +530,18 @@ public class RoiDefinitionAnalysis implements Analysis {
     private ImagePlus loadImage(String directory, String tifName) {
         String baseName = stripExtension(tifName);
 
-        String correctedPath = directory + ".circadian" + File.separator +
+        // Try exact filename in corrected directory first (handles already-corrected names)
+        String correctedExact = directory + ".circadian" + File.separator +
+                "corrected" + File.separator + tifName;
+        if (new File(correctedExact).exists()) {
+            return IJ.openImage(correctedExact);
+        }
+
+        // Try adding _corrected suffix (for when raw filename is passed)
+        String correctedSuffix = directory + ".circadian" + File.separator +
                 "corrected" + File.separator + baseName + "_corrected.tif";
-        if (new File(correctedPath).exists()) {
-            return IJ.openImage(correctedPath);
+        if (new File(correctedSuffix).exists()) {
+            return IJ.openImage(correctedSuffix);
         }
 
         String assembledPath = directory + ".circadian" + File.separator +

@@ -18,6 +18,8 @@ import java.awt.image.BufferedImage;
  */
 public class ScalogramRenderer {
 
+    private static final int S = 3; // DPI scale factor
+
     private ScalogramRenderer() { }
 
     /**
@@ -51,12 +53,11 @@ public class ScalogramRenderer {
 
         fp.setMinAndMax(minPower, maxPower);
 
-        // Convert to RGB for overlay drawing
-        ImagePlus tempImp = new ImagePlus("temp", fp);
-        tempImp.setLut(KymographGenerator.createFireLUT());
-        BufferedImage colorImg = new BufferedImage(nTime, nScales, BufferedImage.TYPE_INT_RGB);
+        // Scale up the source image for higher DPI
+        int scaledW = nTime * S;
+        int scaledH = nScales * S;
 
-        // Map float values to LUT colors
+        // Convert to RGB for overlay drawing
         LUT lut = KymographGenerator.createFireLUT();
         byte[] rLut = new byte[256];
         byte[] gLut = new byte[256];
@@ -68,6 +69,7 @@ public class ScalogramRenderer {
         float range = maxPower - minPower;
         if (range <= 0) range = 1f;
 
+        BufferedImage colorImg = new BufferedImage(scaledW, scaledH, BufferedImage.TYPE_INT_RGB);
         for (int y = 0; y < nScales; y++) {
             for (int x = 0; x < nTime; x++) {
                 float val = fp.getf(x, y);
@@ -75,7 +77,12 @@ public class ScalogramRenderer {
                 if (idx < 0) idx = 0;
                 if (idx > 255) idx = 255;
                 int rgb = ((rLut[idx] & 0xFF) << 16) | ((gLut[idx] & 0xFF) << 8) | (bLut[idx] & 0xFF);
-                colorImg.setRGB(x, y, rgb);
+                // Fill S×S block
+                for (int dy = 0; dy < S; dy++) {
+                    for (int dx = 0; dx < S; dx++) {
+                        colorImg.setRGB(x * S + dx, y * S + dy, rgb);
+                    }
+                }
             }
         }
 
@@ -86,20 +93,19 @@ public class ScalogramRenderer {
         // COI boundary (white dashed line)
         if (wavelet.coneOfInfluence != null) {
             g2.setColor(Color.WHITE);
-            float[] dash = {4f, 4f};
-            g2.setStroke(new BasicStroke(1.5f, BasicStroke.CAP_BUTT, BasicStroke.JOIN_MITER,
+            float[] dash = {4f * S, 4f * S};
+            g2.setStroke(new BasicStroke(1.5f * S, BasicStroke.CAP_BUTT, BasicStroke.JOIN_MITER,
                     10f, dash, 0f));
 
             int prevY = -1;
             for (int t = 0; t < nTime; t++) {
                 double coiPeriod = wavelet.coneOfInfluence[t];
                 int scaleIdx = findNearestScaleIndex(wavelet.periods, coiPeriod);
-                int yPos = nScales - 1 - scaleIdx;
-                if (yPos < 0) yPos = 0;
-                if (yPos >= nScales) yPos = nScales - 1;
+                int yPos = (nScales - 1 - scaleIdx) * S + S / 2;
+                int xPos = t * S + S / 2;
 
                 if (prevY >= 0 && t > 0) {
-                    g2.drawLine(t - 1, prevY, t, yPos);
+                    g2.drawLine((t - 1) * S + S / 2, prevY, xPos, yPos);
                 }
                 prevY = yPos;
             }
@@ -109,28 +115,27 @@ public class ScalogramRenderer {
         RidgeResult ridge = wavelet.ridge;
         if (ridge != null && ridge.ridgeScaleIndices != null) {
             g2.setColor(Color.WHITE);
-            g2.setStroke(new BasicStroke(2.0f));
+            g2.setStroke(new BasicStroke(2.0f * S));
 
             for (int t = 1; t < nTime && t < ridge.ridgeScaleIndices.length; t++) {
-                int y1 = nScales - 1 - ridge.ridgeScaleIndices[t - 1];
-                int y2 = nScales - 1 - ridge.ridgeScaleIndices[t];
-                g2.drawLine(t - 1, y1, t, y2);
+                int y1 = (nScales - 1 - ridge.ridgeScaleIndices[t - 1]) * S + S / 2;
+                int y2 = (nScales - 1 - ridge.ridgeScaleIndices[t]) * S + S / 2;
+                g2.drawLine((t - 1) * S + S / 2, y1, t * S + S / 2, y2);
             }
         }
 
-        // Significance contours (thin white lines where significance > 1.0)
+        // Significance contours
         if (wavelet.significance != null) {
             g2.setColor(new Color(255, 255, 255, 128));
-            g2.setStroke(new BasicStroke(0.5f));
+            g2.setStroke(new BasicStroke(0.5f * S));
 
             for (int j = 0; j < nScales; j++) {
                 for (int t = 1; t < nTime; t++) {
                     boolean thisSig = wavelet.significance[j][t] > 1.0;
                     boolean prevSig = wavelet.significance[j][t - 1] > 1.0;
-                    // Draw at boundaries of significant regions
                     if (thisSig != prevSig) {
-                        int yPos = nScales - 1 - j;
-                        g2.drawLine(t, Math.max(0, yPos - 1), t, Math.min(nScales - 1, yPos + 1));
+                        int yPos = (nScales - 1 - j) * S + S / 2;
+                        g2.drawLine(t * S, yPos - S, t * S, yPos + S);
                     }
                 }
             }
@@ -168,10 +173,10 @@ public class ScalogramRenderer {
                                                        float minPow, float maxPow,
                                                        double[] periods, int nScales,
                                                        double[] times) {
-        int leftMargin = 60;
-        int bottomMargin = 40;
-        int topMargin = 30;
-        int rightMargin = 80;
+        int leftMargin = 60 * S;
+        int bottomMargin = 40 * S;
+        int topMargin = 30 * S;
+        int rightMargin = 80 * S;
         int srcW = src.getWidth();
         int srcH = src.getHeight();
         int totalW = leftMargin + srcW + rightMargin;
@@ -189,63 +194,61 @@ public class ScalogramRenderer {
 
         // Title
         g2.setColor(Color.BLACK);
-        g2.setFont(new Font("SansSerif", Font.BOLD, 13));
+        g2.setFont(new Font("SansSerif", Font.BOLD, 13 * S));
         String title = "Scalogram - " + roiName;
         FontMetrics fm = g2.getFontMetrics();
-        g2.drawString(title, leftMargin + (srcW - fm.stringWidth(title)) / 2, topMargin - 8);
+        g2.drawString(title, leftMargin + (srcW - fm.stringWidth(title)) / 2, topMargin - 8 * S);
 
-        // Y-axis labels (periods in hours, log scale)
-        g2.setFont(new Font("SansSerif", Font.PLAIN, 10));
+        // Y-axis labels (periods in hours)
+        g2.setFont(new Font("SansSerif", Font.PLAIN, 10 * S));
         fm = g2.getFontMetrics();
         if (periods != null && periods.length > 0) {
-            // Label a few key periods
             double[] labelPeriods = {18, 20, 22, 24, 26, 28, 30};
             for (int i = 0; i < labelPeriods.length; i++) {
                 double p = labelPeriods[i];
                 if (p < periods[0] || p > periods[periods.length - 1]) continue;
                 int scaleIdx = findNearestScaleIndex(periods, p);
-                int yPos = topMargin + nScales - 1 - scaleIdx;
+                int yPos = topMargin + (nScales - 1 - scaleIdx) * S + S / 2;
                 String label = String.format("%.0fh", p);
-                g2.drawString(label, leftMargin - fm.stringWidth(label) - 4,
+                g2.drawString(label, leftMargin - fm.stringWidth(label) - 4 * S,
                         yPos + fm.getAscent() / 2);
-                // Tick mark
-                g2.drawLine(leftMargin - 3, yPos, leftMargin, yPos);
+                g2.drawLine(leftMargin - 3 * S, yPos, leftMargin, yPos);
             }
         }
 
         // Y-axis title
-        g2.setFont(new Font("SansSerif", Font.BOLD, 11));
+        g2.setFont(new Font("SansSerif", Font.BOLD, 11 * S));
         Graphics2D g2r = (Graphics2D) g2.create();
         g2r.rotate(-Math.PI / 2);
-        g2r.drawString("Period", -(topMargin + srcH / 2 + 15), 14);
+        g2r.drawString("Period", -(topMargin + srcH / 2 + 15 * S), 14 * S);
         g2r.dispose();
 
-        // X-axis labels (time in hours)
-        g2.setFont(new Font("SansSerif", Font.PLAIN, 10));
+        // X-axis labels at 24h intervals
+        g2.setFont(new Font("SansSerif", Font.PLAIN, 10 * S));
         fm = g2.getFontMetrics();
         if (times != null && times.length > 0) {
             double maxTime = times[times.length - 1];
-            int nLabels = Math.min(6, srcW / 60);
-            for (int i = 0; i <= nLabels; i++) {
-                double t = maxTime * i / nLabels;
-                int xPos = leftMargin + (int) ((double) i / nLabels * (srcW - 1));
+            // Always label at 24h intervals
+            for (double t = 0; t <= maxTime; t += 24) {
+                double frac = t / maxTime;
+                int xPos = leftMargin + (int) (frac * (srcW - 1));
                 String label = String.format("%.0f", t);
                 g2.drawString(label, xPos - fm.stringWidth(label) / 2,
-                        topMargin + srcH + 14);
-                g2.drawLine(xPos, topMargin + srcH, xPos, topMargin + srcH + 3);
+                        topMargin + srcH + 14 * S);
+                g2.drawLine(xPos, topMargin + srcH, xPos, topMargin + srcH + 3 * S);
             }
         }
 
         // X-axis title
-        g2.setFont(new Font("SansSerif", Font.BOLD, 11));
+        g2.setFont(new Font("SansSerif", Font.BOLD, 11 * S));
         fm = g2.getFontMetrics();
         String xTitle = "Time (hours)";
         g2.drawString(xTitle, leftMargin + (srcW - fm.stringWidth(xTitle)) / 2,
-                topMargin + srcH + 32);
+                topMargin + srcH + 32 * S);
 
         // Color bar on the right
-        int barX = leftMargin + srcW + 10;
-        int barW = 15;
+        int barX = leftMargin + srcW + 10 * S;
+        int barW = 15 * S;
         int barH = srcH;
         int barY = topMargin;
 
@@ -267,11 +270,11 @@ public class ScalogramRenderer {
         g2.drawRect(barX, barY, barW, barH);
 
         // Color bar labels
-        g2.setFont(new Font("SansSerif", Font.PLAIN, 9));
+        g2.setFont(new Font("SansSerif", Font.PLAIN, 9 * S));
         fm = g2.getFontMetrics();
-        g2.drawString(String.format("%.1f", maxPow), barX + barW + 3, barY + fm.getAscent());
-        g2.drawString(String.format("%.1f", minPow), barX + barW + 3, barY + barH);
-        g2.drawString("log10(P)", barX, barY - 4);
+        g2.drawString(String.format("%.1f", maxPow), barX + barW + 3 * S, barY + fm.getAscent());
+        g2.drawString(String.format("%.1f", minPow), barX + barW + 3 * S, barY + barH);
+        g2.drawString("log10(P)", barX, barY - 4 * S);
 
         g2.dispose();
         return result;

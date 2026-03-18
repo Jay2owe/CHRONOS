@@ -86,10 +86,11 @@
 - Assembled stacks saved to `.circadian/assembled/`; individual frames deleted after assembly
 - Runs automatically at the start of Module 1 (Pre-processing) when Incucyte frames are detected
 - Frame interval auto-derived from timestamps
+- **Incremental update**: If assembled stacks already exist and new Incucyte frames are found, new frames are appended to existing stacks (or new series assembled). Handles later time points added to the same experiment.
 
 ## Pre-processing Order
-1. Crop (per-file interactive rectangle, saved to `.circadian/crop_regions.txt`)
-2. Slice alignment (per-file rotation via user-drawn midline, saved to `.circadian/alignment_angles.txt`)
+1. Slice alignment (per-file rotation via user-drawn midline, saved to `.circadian/alignment_angles.txt`)
+2. Crop (per-file interactive rectangle on the **rotated** projection, saved to `.circadian/crop_regions.txt`)
 3. Frame binning (GroupedZProjector)
 4. Motion correction (SIFT default, cross-correlation fallback)
 5. Background subtraction (rolling ball, min projection, fixed ROI)
@@ -97,7 +98,9 @@
 7. Spatial filter (Gaussian, median)
 8. Temporal filter (moving average)
 
-- Crop + alignment are combined into a single interactive pass per image (crop then align on same projection)
+- Alignment runs first: user draws midline, then projection is rotated so crop is drawn on the aligned image
+- Rotation uses enlarged canvas (bounding box of rotated rectangle) to prevent clipping
+- Angle normalized to [-90°, 90°] so line drawing direction doesn't matter
 - All interactive steps (crop, align, ROI drawing) always run regardless of headless flag
 - Previous crop/alignment/ROI values prompt reuse dialog before applying
 
@@ -131,6 +134,11 @@ Accessible via "Settings..." button on main pipeline dialog:
 - Module descriptions shown under each toggle in main dialog (IHF-style `addHelpText`).
 - Settings button in main dialog footer opens global settings.
 
+## Visualization Output
+- All plots rendered at 3x DPI scale (~300 DPI at print size)
+- Time axes tick at 24h intervals (0, 24, 48, 72...) with light grey grid lines
+- X-axis limits snap to nearest multiple of 24h
+
 ## Important Notes
 - SIFT registration requires image to be visible (show/hide automatically)
 - Per-file crop regions replace old single-crop (legacy values auto-migrated)
@@ -138,3 +146,4 @@ Accessible via "Settings..." button on main pipeline dialog:
 - If user selects a `.circadian/` subdirectory, pipeline auto-navigates to experiment root
 - Preprocessing settings dialog always shows (not suppressed by headless flag)
 - Frame interval auto-detected from Incucyte timestamps and saved for re-runs
+- ROI and trace file lookups try the full name (with `_corrected`) first, then fall back to stripped name — handles both naming conventions

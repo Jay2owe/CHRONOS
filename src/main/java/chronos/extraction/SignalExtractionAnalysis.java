@@ -113,18 +113,30 @@ public class SignalExtractionAnalysis implements Analysis {
 
             // Determine base name for ROI lookup
             String baseName = getBaseName(filename);
-            // Strip _corrected suffix if present
-            if (baseName.endsWith("_corrected")) {
-                baseName = baseName.substring(0, baseName.length() - "_corrected".length());
-            }
 
-            // Load ROIs
-            String roiPath = roiDir + File.separator + baseName + "_rois.zip";
-            Roi[] rois = RoiIO.loadRoisFromZip(roiPath);
+            // Load ROIs — try with full name first (including _corrected), then stripped
+            Roi[] rois = new Roi[0];
+            String roiPath;
+
+            // Try full name with _rois suffix (e.g. VID22_D2_1_stack_corrected_rois.zip)
+            roiPath = roiDir + File.separator + baseName + "_rois.zip";
+            rois = RoiIO.loadRoisFromZip(roiPath);
+
+            // Try full name without _rois suffix
             if (rois.length == 0) {
-                // Try without _rois suffix
                 roiPath = roiDir + File.separator + baseName + ".zip";
                 rois = RoiIO.loadRoisFromZip(roiPath);
+            }
+
+            // Strip _corrected and retry
+            if (rois.length == 0 && baseName.endsWith("_corrected")) {
+                String strippedName = baseName.substring(0, baseName.length() - "_corrected".length());
+                roiPath = roiDir + File.separator + strippedName + "_rois.zip";
+                rois = RoiIO.loadRoisFromZip(roiPath);
+                if (rois.length == 0) {
+                    roiPath = roiDir + File.separator + strippedName + ".zip";
+                    rois = RoiIO.loadRoisFromZip(roiPath);
+                }
             }
             if (rois.length == 0) {
                 IJ.log("  WARNING: No ROIs found for " + baseName + " in " + roiDir);

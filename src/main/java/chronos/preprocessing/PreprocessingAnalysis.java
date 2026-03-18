@@ -103,6 +103,31 @@ public class PreprocessingAnalysis implements Analysis {
             }
         }
 
+        // --- Check for new Incucyte frames even if assembled stacks exist ---
+        if (useAssembledDir && IncucyteImporter.isIncucyteDirectory(dir)) {
+            Map<String, List<IncucyteImporter.IncucyteFrame>> newGroups =
+                    IncucyteImporter.groupAndSort(dir);
+            int newFrameCount = 0;
+            for (List<IncucyteImporter.IncucyteFrame> frames : newGroups.values()) {
+                newFrameCount += frames.size();
+            }
+            if (newFrameCount > 0) {
+                IJ.log("");
+                IJ.log("Found " + newFrameCount + " new Incucyte frame(s) to add:");
+                for (Map.Entry<String, List<IncucyteImporter.IncucyteFrame>> entry : newGroups.entrySet()) {
+                    String existsLabel = new File(assembledDir + File.separator
+                            + entry.getKey() + "_stack.tif").exists() ? " (append)" : " (new series)";
+                    IJ.log("    " + entry.getKey() + ": " + entry.getValue().size()
+                            + " frames" + existsLabel);
+                }
+                IJ.log("Updating assembled stacks...");
+                List<String> updated = IncucyteImporter.updateStacks(
+                        dir, assembledDir, config.frameIntervalMin);
+                IJ.log("Update complete: " + updated.size() + " stack(s) updated/created.");
+                saveFrameIntervalsFromAssembled(directory, assembledDir);
+            }
+        }
+
         // --- Incucyte Detection & Assembly (only if not already assembled) ---
         if (!useAssembledDir && IncucyteImporter.isIncucyteDirectory(dir)) {
             Map<String, List<IncucyteImporter.IncucyteFrame>> groups =
@@ -317,6 +342,57 @@ public class PreprocessingAnalysis implements Analysis {
                 IJ.run(proj, "Enhance Contrast", "saturated=0.35");
                 imp.close();
 
+                // Align first, then crop on the rotated projection
+                if (doAlign) {
+                    proj.setTitle("ALIGN [" + (ti + 1) + "/" + sortedTifs.length + "] — " + baseName);
+                    proj.show();
+                    WaitForUserDialog alignWait = new WaitForUserDialog(
+                            "CHRONOS — Align [" + (ti + 1) + "/" + sortedTifs.length + "]",
+                            "Image: " + baseName + "\n\n" +
+                            "Draw a LINE through the midline of the slice\n" +
+                            "(the axis you want to be vertical),\n" +
+                            "then press OK.\n\n" +
+                            "Press ESC to skip alignment for this image.");
+                    alignWait.show();
+                    if (!alignWait.escPressed()) {
+                        Roi lineRoi = proj.getRoi();
+                        if (lineRoi != null && lineRoi.isLine()) {
+                            java.awt.geom.Line2D.Double line = getLineCoords(lineRoi);
+                            double dx = line.x2 - line.x1;
+                            double dy = line.y2 - line.y1;
+                            double angleDeg = Math.toDegrees(Math.atan2(dx, dy));
+                            // Normalize to [-90, 90] — line direction shouldn't matter
+                            if (angleDeg > 90) angleDeg -= 180;
+                            if (angleDeg < -90) angleDeg += 180;
+                            perFileAngles.put(baseName, angleDeg);
+                            IJ.log("  [" + (ti + 1) + "/" + sortedTifs.length + "] "
+                                    + baseName + ": rotation = " + String.format("%.1f", angleDeg) + "°");
+
+                            // Rotate the projection so user can crop on the aligned image
+                            if (doCrop && Math.abs(angleDeg) > 0.1) {
+                                proj.deleteRoi();
+                                ImageProcessor projIp = proj.getProcessor();
+                                projIp.setInterpolationMethod(ImageProcessor.BILINEAR);
+                                projIp.setBackgroundValue(0);
+                                // Enlarge canvas to fit rotated image
+                                double rad = Math.toRadians(Math.abs(angleDeg));
+                                int newW = (int) Math.ceil(proj.getWidth() * Math.abs(Math.cos(rad))
+                                        + proj.getHeight() * Math.abs(Math.sin(rad)));
+                                int newH = (int) Math.ceil(proj.getWidth() * Math.abs(Math.sin(rad))
+                                        + proj.getHeight() * Math.abs(Math.cos(rad)));
+                                ImageProcessor enlarged = projIp.createProcessor(newW, newH);
+                                enlarged.insert(projIp, (newW - proj.getWidth()) / 2,
+                                        (newH - proj.getHeight()) / 2);
+                                enlarged.setInterpolationMethod(ImageProcessor.BILINEAR);
+                                enlarged.setBackgroundValue(0);
+                                enlarged.rotate(-angleDeg);
+                                proj.setProcessor(enlarged);
+                            }
+                        }
+                    }
+                    proj.deleteRoi();
+                }
+
                 if (doCrop) {
                     proj.setTitle("CROP [" + (ti + 1) + "/" + sortedTifs.length + "] — " + baseName);
                     proj.show();
@@ -338,31 +414,6 @@ public class PreprocessingAnalysis implements Analysis {
                         }
                     }
                     proj.deleteRoi();
-                }
-
-                if (doAlign) {
-                    proj.setTitle("ALIGN [" + (ti + 1) + "/" + sortedTifs.length + "] — " + baseName);
-                    proj.show();
-                    WaitForUserDialog alignWait = new WaitForUserDialog(
-                            "CHRONOS — Align [" + (ti + 1) + "/" + sortedTifs.length + "]",
-                            "Image: " + baseName + "\n\n" +
-                            "Draw a LINE through the midline of the slice\n" +
-                            "(the axis you want to be vertical),\n" +
-                            "then press OK.\n\n" +
-                            "Press ESC to skip alignment for this image.");
-                    alignWait.show();
-                    if (!alignWait.escPressed()) {
-                        Roi lineRoi = proj.getRoi();
-                        if (lineRoi != null && lineRoi.isLine()) {
-                            java.awt.geom.Line2D.Double line = getLineCoords(lineRoi);
-                            double dx = line.x2 - line.x1;
-                            double dy = line.y2 - line.y1;
-                            double angleDeg = Math.toDegrees(Math.atan2(dx, dy));
-                            perFileAngles.put(baseName, angleDeg);
-                            IJ.log("  [" + (ti + 1) + "/" + sortedTifs.length + "] "
-                                    + baseName + ": rotation = " + String.format("%.1f", angleDeg) + "°");
-                        }
-                    }
                 }
 
                 proj.close();
@@ -391,14 +442,50 @@ public class PreprocessingAnalysis implements Analysis {
             IJ.log("  Loaded: " + imp.getWidth() + "x" + imp.getHeight()
                     + " x " + imp.getStackSize() + " frames");
 
-            // Step 0: Crop (per-file crop regions)
+            // Step 0a: Alignment rotation (before crop so crop is on aligned image)
             String baseName0 = fileName;
             int dotIdx0 = baseName0.lastIndexOf('.');
             if (dotIdx0 > 0) baseName0 = baseName0.substring(0, dotIdx0);
+            Double fileAngle = perFileAngles.get(baseName0);
+            if (config.alignEnabled && fileAngle != null && Math.abs(fileAngle) > 0.1) {
+                IJ.log("  Step 0a: Align (rotate " + String.format("%.1f", fileAngle) + "°)");
+                // Enlarge canvas to fit rotated image without clipping
+                double rad = Math.toRadians(Math.abs(fileAngle));
+                int origW = imp.getWidth();
+                int origH = imp.getHeight();
+                int newW = (int) Math.ceil(origW * Math.abs(Math.cos(rad))
+                        + origH * Math.abs(Math.sin(rad)));
+                int newH = (int) Math.ceil(origW * Math.abs(Math.sin(rad))
+                        + origH * Math.abs(Math.cos(rad)));
+                int padX = (newW - origW) / 2;
+                int padY = (newH - origH) / 2;
+
+                ImageStack rotatedStack = new ImageStack(newW, newH);
+                ImageStack srcStack2 = imp.getStack();
+                for (int s = 1; s <= srcStack2.getSize(); s++) {
+                    ImageProcessor ip = srcStack2.getProcessor(s);
+                    ImageProcessor enlarged = ip.createProcessor(newW, newH);
+                    enlarged.insert(ip, padX, padY);
+                    enlarged.setInterpolationMethod(ImageProcessor.BILINEAR);
+                    enlarged.setBackgroundValue(0);
+                    enlarged.rotate(-fileAngle);
+                    rotatedStack.addSlice(srcStack2.getSliceLabel(s), enlarged);
+                }
+                ImagePlus rotated = new ImagePlus(imp.getTitle(), rotatedStack);
+                rotated.setCalibration(imp.getCalibration().copy());
+                imp.close();
+                imp = rotated;
+            } else if (config.alignEnabled) {
+                IJ.log("  Step 0a: Align — no angle defined for this file, skipping");
+            } else {
+                IJ.log("  Step 0a: Align — skipped");
+            }
+
+            // Step 0b: Crop (per-file crop regions, drawn on aligned image)
             Rectangle fileCrop = perFileCrops.get(baseName0);
 
             if (config.cropEnabled && fileCrop != null) {
-                IJ.log("  Step 0: Crop (" + fileCrop.width + "x" + fileCrop.height
+                IJ.log("  Step 0b: Crop (" + fileCrop.width + "x" + fileCrop.height
                         + " at " + fileCrop.x + "," + fileCrop.y + ")");
                 ImageStack croppedStack = new ImageStack(fileCrop.width, fileCrop.height);
                 ImageStack srcStack = imp.getStack();
@@ -412,32 +499,9 @@ public class PreprocessingAnalysis implements Analysis {
                 imp.close();
                 imp = cropped;
             } else if (config.cropEnabled) {
-                IJ.log("  Step 0: Crop — no crop region defined for this file, skipping");
+                IJ.log("  Step 0b: Crop — no crop region defined for this file, skipping");
             } else {
-                IJ.log("  Step 0: Crop — skipped");
-            }
-
-            // Step 0b: Alignment rotation
-            Double fileAngle = perFileAngles.get(baseName0);
-            if (config.alignEnabled && fileAngle != null && Math.abs(fileAngle) > 0.1) {
-                IJ.log("  Step 0b: Align (rotate " + String.format("%.1f", fileAngle) + "°)");
-                ImageStack rotatedStack = new ImageStack(imp.getWidth(), imp.getHeight());
-                ImageStack srcStack2 = imp.getStack();
-                for (int s = 1; s <= srcStack2.getSize(); s++) {
-                    ImageProcessor ip = srcStack2.getProcessor(s).duplicate();
-                    ip.setInterpolationMethod(ImageProcessor.BILINEAR);
-                    ip.setBackgroundValue(0);
-                    ip.rotate(-fileAngle); // negative because we want to undo the tilt
-                    rotatedStack.addSlice(srcStack2.getSliceLabel(s), ip);
-                }
-                ImagePlus rotated = new ImagePlus(imp.getTitle(), rotatedStack);
-                rotated.setCalibration(imp.getCalibration().copy());
-                imp.close();
-                imp = rotated;
-            } else if (config.alignEnabled) {
-                IJ.log("  Step 0b: Align — no angle defined for this file, skipping");
-            } else {
-                IJ.log("  Step 0b: Align — skipped");
+                IJ.log("  Step 0b: Crop — skipped");
             }
 
             // Step 1: Frame Binning

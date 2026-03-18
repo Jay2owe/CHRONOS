@@ -202,6 +202,98 @@ public class IncucyteImporter {
     }
 
     /**
+     * Updates existing assembled stacks with new Incucyte frames.
+     * For each series with new frames: opens the existing stack, appends the
+     * new frames in time order, and saves the updated stack.
+     * For new series (no existing stack): assembles from scratch.
+     * After successful update, individual frame files are deleted.
+     *
+     * @param sourceDir        directory containing new individual Incucyte TIF frames
+     * @param outputDir        directory containing existing assembled stacks
+     * @param frameIntervalMin fallback frame interval
+     * @return list of updated/created stack filenames
+     */
+    public static List<String> updateStacks(File sourceDir, String outputDir,
+                                             double frameIntervalMin) {
+        Map<String, List<IncucyteFrame>> groups = groupAndSort(sourceDir);
+        List<String> updatedFiles = new ArrayList<String>();
+
+        for (Map.Entry<String, List<IncucyteFrame>> entry : groups.entrySet()) {
+            String prefix = entry.getKey();
+            List<IncucyteFrame> newFrames = entry.getValue();
+            String stackPath = outputDir + File.separator + prefix + "_stack.tif";
+            File existingStack = new File(stackPath);
+
+            // Derive interval from new frame timestamps
+            double intervalMin = frameIntervalMin;
+            if (newFrames.size() >= 2) {
+                double derived = (double)(newFrames.get(1).totalMinutes - newFrames.get(0).totalMinutes);
+                if (derived > 0) intervalMin = derived;
+            }
+
+            if (existingStack.exists()) {
+                // Append new frames to existing stack
+                IJ.log("  Updating " + prefix + "_stack.tif with " + newFrames.size() + " new frame(s)...");
+                ImagePlus existing = IJ.openImage(stackPath);
+                if (existing == null) {
+                    IJ.log("    ERROR: Could not open existing stack " + stackPath);
+                    continue;
+                }
+
+                ij.ImageStack stack = existing.getStack();
+                for (IncucyteFrame frame : newFrames) {
+                    ImagePlus frameImp = IJ.openImage(
+                            sourceDir.getAbsolutePath() + File.separator + frame.filename);
+                    if (frameImp != null) {
+                        stack.addSlice(frame.filename, frameImp.getProcessor());
+                        frameImp.close();
+                    }
+                }
+
+                existing.setDimensions(1, 1, stack.getSize());
+                Calibration cal = existing.getCalibration();
+                cal.frameInterval = intervalMin * 60.0;
+                cal.setTimeUnit("sec");
+
+                FileSaver saver = new FileSaver(existing);
+                saver.saveAsTiffStack(stackPath);
+                existing.close();
+
+                updatedFiles.add(prefix + "_stack.tif");
+                IJ.log("    Updated: " + stack.getSize() + " total frames");
+            } else {
+                // New series — assemble from scratch
+                IJ.log("  Assembling new series: " + prefix + " (" + newFrames.size() + " frames)");
+                String options = "filter=" + prefix + " sort";
+                ImagePlus imp = FolderOpener.open(sourceDir.getAbsolutePath(), options);
+                if (imp == null || imp.getStackSize() == 0) {
+                    IJ.log("    ERROR: Could not assemble " + prefix);
+                    continue;
+                }
+                imp.setDimensions(1, 1, imp.getStackSize());
+                Calibration cal = imp.getCalibration();
+                cal.frameInterval = intervalMin * 60.0;
+                cal.setTimeUnit("sec");
+                FileSaver saver = new FileSaver(imp);
+                saver.saveAsTiffStack(stackPath);
+                imp.close();
+                updatedFiles.add(prefix + "_stack.tif");
+                IJ.log("    Saved: " + prefix + "_stack.tif (" + imp.getStackSize() + " frames)");
+            }
+
+            // Delete individual frame files
+            int deleted = 0;
+            for (IncucyteFrame frame : newFrames) {
+                File f = new File(sourceDir, frame.filename);
+                if (f.delete()) deleted++;
+            }
+            IJ.log("    Cleaned up " + deleted + "/" + newFrames.size() + " individual frames");
+        }
+
+        return updatedFiles;
+    }
+
+    /**
      * Returns the list of non-Incucyte TIF files in the directory
      * (i.e. files that don't match the Incucyte timestamp pattern).
      */
