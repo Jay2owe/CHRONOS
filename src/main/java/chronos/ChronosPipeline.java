@@ -12,12 +12,17 @@ import chronos.tracking.TrackingAnalysis;
 import chronos.ui.PipelineDialog;
 import chronos.visualization.VisualizationAnalysis;
 
+import chronos.ui.ToggleSwitch;
+
 import ij.IJ;
 import ij.plugin.PlugIn;
 
-import java.io.File;
-import java.io.FilenameFilter;
+import javax.swing.*;
+import java.awt.event.ActionEvent;
+import java.awt.event.ActionListener;
+import java.io.*;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -62,21 +67,65 @@ public class ChronosPipeline implements PlugIn {
             return;
         }
 
-        // 2. Scan for TIF files
+        // Guard: if user selected a subfolder inside .circadian/, walk up to experiment root
         File dir = new File(directory);
-        String[] tifFiles = dir.list(new FilenameFilter() {
-            @Override
-            public boolean accept(File d, String name) {
-                return name.toLowerCase().endsWith(".tif") || name.toLowerCase().endsWith(".tiff");
+        while (dir != null) {
+            String name = dir.getName();
+            if (name.equals(".circadian") || (dir.getParentFile() != null
+                    && dir.getParentFile().getName().equals(".circadian"))) {
+                // Go up: .circadian/assembled -> .circadian -> experiment root
+                File candidate = dir;
+                while (candidate != null && !candidate.getName().equals(".circadian")) {
+                    candidate = candidate.getParentFile();
+                }
+                if (candidate != null && candidate.getParentFile() != null) {
+                    dir = candidate.getParentFile();
+                    directory = dir.getAbsolutePath() + File.separator;
+                    IJ.log("Note: Selected folder was inside .circadian/ — using experiment root: " + directory);
+                }
+                break;
             }
-        });
+            break;
+        }
 
-        if (tifFiles == null || tifFiles.length == 0) {
-            IJ.error("CHRONOS", "No TIF files found in:\n" + directory);
+        // 2. Scan for TIF files and detect previous session
+        dir = new File(directory);
+        File circadianDir = new File(directory, ".circadian");
+        File assembledDir = new File(circadianDir, "assembled");
+        File correctedDir = new File(circadianDir, "corrected");
+
+        String[] tifFiles = listTifs(dir);
+        String[] assembledFiles = listTifs(assembledDir);
+        String[] correctedFiles = listTifs(correctedDir);
+
+        // Detect previous session
+        if (circadianDir.exists()) {
+            IJ.log("Previous CHRONOS session detected in .circadian/");
+            if (correctedFiles.length > 0) {
+                IJ.log("  " + correctedFiles.length + " corrected stack(s) found — can skip pre-processing");
+            }
+            if (assembledFiles.length > 0) {
+                IJ.log("  " + assembledFiles.length + " assembled stack(s) found — can resume from pre-processing");
+            }
+            // Check for existing traces, ROIs, etc.
+            File tracesDir = new File(circadianDir, "traces");
+            File roisDir = new File(circadianDir, "ROIs");
+            String[] traceFiles = listTifs(tracesDir); // won't find CSVs, check separately
+            String[] roiFiles = roisDir.exists() ? roisDir.list() : null;
+            if (roiFiles != null && roiFiles.length > 0) {
+                IJ.log("  " + roiFiles.length + " ROI file(s) found");
+            }
+        }
+
+        // We need at least some images to work with
+        boolean hasImages = (tifFiles.length > 0) || (assembledFiles.length > 0) || (correctedFiles.length > 0);
+        if (!hasImages) {
+            IJ.error("CHRONOS", "No TIF files found in:\n" + directory +
+                    "\n\nAlso checked .circadian/assembled/ and .circadian/corrected/");
             return;
         }
 
-        // Check if this is an Incucyte directory with individual frames
+        // Report what we found
         if (IncucyteImporter.isIncucyteDirectory(dir)) {
             Map<String, List<IncucyteImporter.IncucyteFrame>> groups =
                     IncucyteImporter.groupAndSort(dir);
@@ -84,28 +133,35 @@ public class ChronosPipeline implements PlugIn {
             for (List<IncucyteImporter.IncucyteFrame> frames : groups.values()) {
                 totalFrames += frames.size();
             }
-            String[] nonIncucyte = IncucyteImporter.getNonIncucyteTifs(dir);
             IJ.log("Incucyte image sequence detected in " + directory);
             IJ.log("  " + totalFrames + " individual frames across " + groups.size() + " series");
             for (Map.Entry<String, List<IncucyteImporter.IncucyteFrame>> entry : groups.entrySet()) {
                 IJ.log("    " + entry.getKey() + ": " + entry.getValue().size() + " frames");
             }
-            if (nonIncucyte.length > 0) {
-                IJ.log("  " + nonIncucyte.length + " non-Incucyte TIF(s) also present");
-            }
             IJ.log("  Stacks will be assembled during pre-processing.");
-        } else {
+        } else if (tifFiles.length > 0) {
             IJ.log("Found " + tifFiles.length + " TIF file(s) in " + directory);
             for (String f : tifFiles) {
                 IJ.log("  - " + f);
             }
+        } else {
+            IJ.log("No raw TIF files in experiment folder (using previously processed data).");
         }
 
         // 3. Load existing config or create default
-        SessionConfig config = SessionConfigIO.readFromDirectory(directory);
+        final SessionConfig config = SessionConfigIO.readFromDirectory(directory);
 
-        // 4. Show main pipeline dialog
-        PipelineDialog dlg = new PipelineDialog("CHRONOS — Circadian Rhythm Analyzer");
+        // Try to auto-detect frame interval from saved intervals
+        File intervalsFile = new File(directory, ".circadian" + File.separator + "frame_intervals.txt");
+        if (intervalsFile.exists()) {
+            Map<String, Double> savedIntervals = loadFrameIntervals(intervalsFile.getAbsolutePath());
+            if (!savedIntervals.isEmpty()) {
+                config.frameIntervalMin = savedIntervals.values().iterator().next();
+            }
+        }
+
+        // 4. Show main pipeline dialog with Settings button
+        final PipelineDialog dlg = new PipelineDialog("CHRONOS — Circadian Rhythm Analyzer");
 
         dlg.addHeader("Pipeline Modules");
         dlg.addHelpText("Select which modules to run. Modules execute in order.");
@@ -115,11 +171,14 @@ public class ChronosPipeline implements PlugIn {
             dlg.addHelpText(MODULE_DESCRIPTIONS[i]);
         }
 
-        dlg.addSpacer(8);
-        dlg.addHeader("Pipeline Options");
-        dlg.addToggle("Hide Image Windows", config.hideImageWindows);
-        dlg.addToggle("Parallel Processing", config.parallelProcessing);
-        dlg.addNumericField("Threads", config.parallelThreads, 0);
+        // Settings button in footer — opens the global settings dialog
+        JButton settingsBtn = dlg.addFooterButton("Settings...");
+        settingsBtn.addActionListener(new ActionListener() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                showSettingsDialog(config);
+            }
+        });
 
         if (!dlg.showDialog()) {
             IJ.log("CHRONOS: Cancelled by user.");
@@ -131,12 +190,6 @@ public class ChronosPipeline implements PlugIn {
         for (int i = 0; i < MODULE_NAMES.length; i++) {
             moduleEnabled[i] = dlg.getNextBoolean();
         }
-
-        config.hideImageWindows = dlg.getNextBoolean();
-        config.parallelProcessing = dlg.getNextBoolean();
-        config.parallelThreads = Math.max(1, Math.min(
-            Runtime.getRuntime().availableProcessors(),
-            (int) dlg.getNextNumber()));
 
         // 6. Create .circadian/ directory structure
         createSessionDirectories(directory);
@@ -215,6 +268,117 @@ public class ChronosPipeline implements PlugIn {
         list.add(new ExportAnalysis());             // 6
         list.add(new TrackingAnalysis());           // 7
         return list;
+    }
+
+    /**
+     * Shows the global settings dialog.
+     * Settings here apply across all modules.
+     */
+    private void showSettingsDialog(SessionConfig config) {
+        PipelineDialog dlg = new PipelineDialog("CHRONOS — Settings");
+
+        // --- Experiment Setup ---
+        dlg.addHeader("Experiment Setup");
+        dlg.addHelpText("Fundamental recording parameters shared across all modules.");
+        String[] reporterTypes = {"Fluorescent", "Bioluminescence", "Calcium"};
+        dlg.addChoice("Reporter Type", reporterTypes, config.reporterType);
+        dlg.addHelpText("Determines default bleach correction method. Bioluminescence uses Sliding Percentile, Fluorescent/Calcium use Bi-exponential.");
+        dlg.addNumericField("Frame Interval (minutes)", config.frameIntervalMin, 1);
+        dlg.addHelpText("Time between consecutive frames. Auto-detected from Incucyte timestamps when available.");
+
+        // --- Circadian Analysis Parameters ---
+        dlg.addSpacer(8);
+        dlg.addHeader("Circadian Analysis Parameters");
+        dlg.addHelpText("Period search range and statistical thresholds used by rhythm analysis methods.");
+        dlg.addNumericField("Min Period (hours)", config.periodMinHours, 1);
+        dlg.addNumericField("Max Period (hours)", config.periodMaxHours, 1);
+        dlg.addNumericField("Significance Threshold (p-value)", config.significanceThreshold, 3);
+
+        // --- Processing ---
+        dlg.addSpacer(8);
+        dlg.addHeader("Processing");
+        dlg.addToggle("Hide Image Windows", config.hideImageWindows);
+        dlg.addHelpText("Suppress image display during automated processing steps. Interactive steps (crop, ROI drawing) always show images regardless of this setting.");
+        final ToggleSwitch parallelToggle = dlg.addToggle("Parallel Processing", config.parallelProcessing);
+        dlg.addHelpText("Process multiple images simultaneously. Disable if Fiji becomes unresponsive during processing.");
+        int maxThreads = Runtime.getRuntime().availableProcessors();
+        final JTextField threadField = dlg.addNumericField("Threads", config.parallelThreads, 0);
+        dlg.addHelpText("Number of parallel worker threads (max " + maxThreads + " on this machine). Recommended: " + Math.max(1, maxThreads / 2) + ".");
+        threadField.setEnabled(config.parallelProcessing);
+        parallelToggle.addChangeListener(new Runnable() {
+            public void run() {
+                threadField.setEnabled(parallelToggle.isSelected());
+            }
+        });
+
+        // --- Output ---
+        dlg.addSpacer(8);
+        dlg.addHeader("Output");
+        String[] imageFormats = {"PNG", "TIFF"};
+        dlg.addChoice("Image Format", imageFormats, config.exportImageFormat);
+        dlg.addHelpText("Format for saved visualization images. PNG for smaller files, TIFF for lossless quality.");
+
+        if (!dlg.showDialog()) {
+            return; // cancelled — don't change anything
+        }
+
+        // Read values
+        config.reporterType = dlg.getNextChoice();
+        config.frameIntervalMin = dlg.getNextNumber();
+        config.periodMinHours = dlg.getNextNumber();
+        config.periodMaxHours = dlg.getNextNumber();
+        config.significanceThreshold = dlg.getNextNumber();
+        config.hideImageWindows = dlg.getNextBoolean();
+        config.parallelProcessing = dlg.getNextBoolean();
+        config.parallelThreads = Math.max(1, Math.min(maxThreads, (int) dlg.getNextNumber()));
+        config.exportImageFormat = dlg.getNextChoice();
+
+        // Apply reporter defaults
+        config.applyReporterDefaults();
+
+        IJ.log("Settings updated.");
+    }
+
+    /**
+     * Loads per-file frame intervals from frame_intervals.txt.
+     */
+    private static Map<String, Double> loadFrameIntervals(String path) {
+        Map<String, Double> intervals = new LinkedHashMap<String, Double>();
+        File f = new File(path);
+        if (!f.exists()) return intervals;
+        BufferedReader br = null;
+        try {
+            br = new BufferedReader(new FileReader(f));
+            String line;
+            while ((line = br.readLine()) != null) {
+                line = line.trim();
+                if (line.isEmpty() || line.startsWith("#")) continue;
+                int eq = line.indexOf('=');
+                if (eq < 0) continue;
+                String key = line.substring(0, eq).trim();
+                String val = line.substring(eq + 1).trim();
+                try {
+                    intervals.put(key, Double.parseDouble(val));
+                } catch (NumberFormatException e) { /* skip */ }
+            }
+        } catch (IOException e) {
+            // ignore
+        } finally {
+            if (br != null) { try { br.close(); } catch (IOException ignored) {} }
+        }
+        return intervals;
+    }
+
+    private static String[] listTifs(File dir) {
+        if (dir == null || !dir.exists()) return new String[0];
+        String[] files = dir.list(new FilenameFilter() {
+            @Override
+            public boolean accept(File d, String name) {
+                String lower = name.toLowerCase();
+                return lower.endsWith(".tif") || lower.endsWith(".tiff");
+            }
+        });
+        return files != null ? files : new String[0];
     }
 
     private String formatDuration(long millis) {

@@ -88,13 +88,25 @@
 - Frame interval auto-derived from timestamps
 
 ## Pre-processing Order
-1. Crop (interactive rectangle on first image, saved and reused)
-2. Frame binning (GroupedZProjector)
-3. Motion correction (SIFT default, cross-correlation fallback)
-4. Background subtraction (rolling ball, min projection, fixed ROI)
-5. Bleach/decay correction (bi-exponential for fluorescent, sliding percentile for bioluminescence)
-6. Spatial filter (Gaussian, median)
-7. Temporal filter (moving average)
+1. Crop (per-file interactive rectangle, saved to `.circadian/crop_regions.txt`)
+2. Slice alignment (per-file rotation via user-drawn midline, saved to `.circadian/alignment_angles.txt`)
+3. Frame binning (GroupedZProjector)
+4. Motion correction (SIFT default, cross-correlation fallback)
+5. Background subtraction (rolling ball, min projection, fixed ROI)
+6. Bleach/decay correction (bi-exponential for fluorescent, sliding percentile for bioluminescence)
+7. Spatial filter (Gaussian, median)
+8. Temporal filter (moving average)
+
+- Crop + alignment are combined into a single interactive pass per image (crop then align on same projection)
+- All interactive steps (crop, align, ROI drawing) always run regardless of headless flag
+- Previous crop/alignment/ROI values prompt reuse dialog before applying
+
+## Global Settings Dialog
+Accessible via "Settings..." button on main pipeline dialog:
+- Reporter Type, Frame Interval (auto-detected from Incucyte timestamps)
+- Period search range (min/max hours), Significance threshold
+- Hide Image Windows, Parallel Processing + thread count
+- Output image format (PNG/TIFF)
 
 ## Reporter Types
 - **Bioluminescence** (PER2::LUC) — sliding percentile bleach correction
@@ -103,17 +115,26 @@
 
 ## Data Conventions
 - `.circadian/` session directory per experiment folder
-- Subdirectories: `assembled/`, `corrected/`, `ROIs/`, `traces/`, `rhythm/`, `visualizations/`, `exports/`, `tracking/`
+- Subdirectories: `assembled/`, `corrected/`, `projections/`, `ROIs/`, `traces/`, `rhythm/`, `visualizations/`, `exports/`, `tracking/`
 - Config persisted in `.circadian/config.txt` (key=value format)
+- Per-file crop regions in `.circadian/crop_regions.txt`
+- Per-file alignment angles in `.circadian/alignment_angles.txt`
+- Per-file frame intervals in `.circadian/frame_intervals.txt`
 - ROIs saved as `.zip` in `.circadian/ROIs/`
+- Mean + max projections saved to `.circadian/projections/`
 - ROI Definition always runs interactively (never headless)
 
 ## UI Conventions
 - Use `PipelineDialog` for all dialogs.
-- Use `ToggleSwitch` for boolean options.
-- `WaitForUserDialog` for interactive steps (crop, ROI drawing).
+- Use `ToggleSwitch` for boolean options — all preprocessing filters have toggle switches (when OFF, parameters are greyed out).
+- `WaitForUserDialog` for interactive steps (crop, alignment, ROI drawing).
+- Module descriptions shown under each toggle in main dialog (IHF-style `addHelpText`).
+- Settings button in main dialog footer opens global settings.
 
 ## Important Notes
 - SIFT registration requires image to be visible (show/hide automatically)
-- Crop region is saved in config and reused across re-runs
+- Per-file crop regions replace old single-crop (legacy values auto-migrated)
 - Auto-boundary detection uses Triangle threshold (best for small bright sample in large dark well)
+- If user selects a `.circadian/` subdirectory, pipeline auto-navigates to experiment root
+- Preprocessing settings dialog always shows (not suppressed by headless flag)
+- Frame interval auto-detected from Incucyte timestamps and saved for re-runs

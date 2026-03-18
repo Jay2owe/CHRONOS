@@ -21,6 +21,9 @@ public class SessionConfig {
     public int cropWidth = -1;
     public int cropHeight = -1;
 
+    // --- Alignment ---
+    public boolean alignEnabled = false;
+
     // --- Frame Binning ---
     public boolean binningEnabled = false;
     public int binFactor = 4;

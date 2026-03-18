@@ -60,6 +60,9 @@ public class SessionConfigIO {
         cfg.cropWidth = getInt(props, "cropWidth", cfg.cropWidth);
         cfg.cropHeight = getInt(props, "cropHeight", cfg.cropHeight);
 
+        // Alignment
+        cfg.alignEnabled = getBool(props, "alignEnabled", cfg.alignEnabled);
+
         // Frame Binning
         cfg.binningEnabled = getBool(props, "binningEnabled", cfg.binningEnabled);
         cfg.binFactor = getInt(props, "binFactor", cfg.binFactor);
@@ -168,6 +171,10 @@ public class SessionConfigIO {
             pw.println("cropY=" + cfg.cropY);
             pw.println("cropWidth=" + cfg.cropWidth);
             pw.println("cropHeight=" + cfg.cropHeight);
+            pw.println();
+
+            pw.println("# Alignment");
+            pw.println("alignEnabled=" + cfg.alignEnabled);
             pw.println();
 
             pw.println("# Frame Binning");

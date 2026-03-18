@@ -19,8 +19,6 @@ import ij.process.ImageStatistics;
 
 import javax.swing.*;
 import java.awt.*;
-import java.awt.event.ItemEvent;
-import java.awt.event.ItemListener;
 import java.io.*;
 import java.util.Arrays;
 import java.util.LinkedHashMap;
@@ -43,6 +41,8 @@ public class PreprocessingAnalysis implements Analysis {
 
     private boolean headless = false;
     private int parallelThreads = 1;
+    /** Set before showDialog so it can find frame_intervals.txt */
+    private String config_directory = "";
 
     @Override
     public String getName() {
@@ -69,94 +69,94 @@ public class PreprocessingAnalysis implements Analysis {
         // Load config
         SessionConfig config = SessionConfigIO.readFromDirectory(directory);
 
-        // Show dialog unless headless
-        if (!headless) {
-            if (!showDialog(config)) {
-                return false;
-            }
-            // Save updated config
-            SessionConfigIO.writeToDirectory(directory, config);
+        // Always show the settings dialog (headless only suppresses image windows,
+        // not the configuration dialog — user must always be able to choose methods)
+        config_directory = directory;
+        if (!showDialog(config)) {
+            return false;
         }
+        // Save updated config
+        SessionConfigIO.writeToDirectory(directory, config);
 
-        // --- Incucyte Detection & Assembly ---
+        // --- Detect existing assembled stacks from a previous run ---
         File dir = new File(directory);
         String assembledDir = directory + ".circadian" + File.separator + "assembled" + File.separator;
         boolean useAssembledDir = false;
 
-        if (IncucyteImporter.isIncucyteDirectory(dir)) {
+        // Check if assembled stacks already exist (from a previous run)
+        File assembledFile = new File(assembledDir);
+        if (assembledFile.exists()) {
+            String[] existingAssembled = assembledFile.list(new FilenameFilter() {
+                @Override
+                public boolean accept(File d, String name) {
+                    String lower = name.toLowerCase();
+                    return lower.endsWith(".tif") || lower.endsWith(".tiff");
+                }
+            });
+            if (existingAssembled != null && existingAssembled.length > 0) {
+                IJ.log("");
+                IJ.log("Found " + existingAssembled.length + " previously assembled stack(s) in .circadian/assembled/");
+                for (String s : existingAssembled) {
+                    IJ.log("  - " + s);
+                }
+                useAssembledDir = true;
+            }
+        }
+
+        // --- Incucyte Detection & Assembly (only if not already assembled) ---
+        if (!useAssembledDir && IncucyteImporter.isIncucyteDirectory(dir)) {
             Map<String, List<IncucyteImporter.IncucyteFrame>> groups =
                     IncucyteImporter.groupAndSort(dir);
 
-            // Check if stacks have already been assembled
-            File assembledFile = new File(assembledDir);
-            boolean alreadyAssembled = false;
-            if (assembledFile.exists()) {
-                String[] existing = assembledFile.list();
-                if (existing != null && existing.length > 0) {
-                    alreadyAssembled = true;
-                }
+            IJ.log("");
+            IJ.log("Incucyte image sequence detected!");
+            IJ.log("  Found " + groups.size() + " series:");
+            int totalFrames = 0;
+            for (Map.Entry<String, List<IncucyteImporter.IncucyteFrame>> entry : groups.entrySet()) {
+                int nFrames = entry.getValue().size();
+                totalFrames += nFrames;
+                List<IncucyteImporter.IncucyteFrame> frames = entry.getValue();
+                double spanMinutes = frames.get(frames.size() - 1).totalMinutes - frames.get(0).totalMinutes;
+                double spanHours = spanMinutes / 60.0;
+                IJ.log("    " + entry.getKey() + ": " + nFrames + " frames, "
+                        + String.format("%.1f", spanHours) + " hours");
             }
 
-            if (!alreadyAssembled) {
-                IJ.log("");
-                IJ.log("Incucyte image sequence detected!");
-                IJ.log("  Found " + groups.size() + " series:");
-                int totalFrames = 0;
-                for (Map.Entry<String, List<IncucyteImporter.IncucyteFrame>> entry : groups.entrySet()) {
-                    int nFrames = entry.getValue().size();
-                    totalFrames += nFrames;
-                    List<IncucyteImporter.IncucyteFrame> frames = entry.getValue();
-                    double spanMinutes = frames.get(frames.size() - 1).totalMinutes - frames.get(0).totalMinutes;
-                    double spanHours = spanMinutes / 60.0;
-                    IJ.log("    " + entry.getKey() + ": " + nFrames + " frames, "
-                            + String.format("%.1f", spanHours) + " hours");
-                }
+            PipelineDialog incuDlg = new PipelineDialog("CHRONOS — Incucyte Import");
+            incuDlg.addHeader("Incucyte Sequence Detected");
+            incuDlg.addMessage("Found <b>" + totalFrames + "</b> individual Incucyte frames "
+                    + "across <b>" + groups.size() + "</b> series.");
+            incuDlg.addMessage("These will be assembled into time-ordered stacks "
+                    + "before pre-processing.");
+            incuDlg.addSpacer(4);
+            for (Map.Entry<String, List<IncucyteImporter.IncucyteFrame>> entry : groups.entrySet()) {
+                List<IncucyteImporter.IncucyteFrame> frames = entry.getValue();
+                double spanHours = (frames.get(frames.size() - 1).totalMinutes
+                        - frames.get(0).totalMinutes) / 60.0;
+                incuDlg.addMessage(entry.getKey() + ": " + frames.size() + " frames, "
+                        + String.format("%.1f", spanHours) + "h span");
+            }
+            incuDlg.addSpacer(4);
+            incuDlg.addHeader("Options");
+            incuDlg.addToggle("Assemble stacks", true);
 
-                if (!headless) {
-                    PipelineDialog incuDlg = new PipelineDialog("CHRONOS — Incucyte Import");
-                    incuDlg.addHeader("Incucyte Sequence Detected");
-                    incuDlg.addMessage("Found <b>" + totalFrames + "</b> individual Incucyte frames "
-                            + "across <b>" + groups.size() + "</b> series.");
-                    incuDlg.addMessage("These will be assembled into time-ordered stacks "
-                            + "before pre-processing.");
-                    incuDlg.addSpacer(4);
-                    for (Map.Entry<String, List<IncucyteImporter.IncucyteFrame>> entry : groups.entrySet()) {
-                        List<IncucyteImporter.IncucyteFrame> frames = entry.getValue();
-                        double spanHours = (frames.get(frames.size() - 1).totalMinutes
-                                - frames.get(0).totalMinutes) / 60.0;
-                        incuDlg.addMessage(entry.getKey() + ": " + frames.size() + " frames, "
-                                + String.format("%.1f", spanHours) + "h span");
-                    }
-                    incuDlg.addSpacer(4);
-                    incuDlg.addHeader("Options");
-                    incuDlg.addToggle("Assemble stacks", true);
+            if (!incuDlg.showDialog()) {
+                return false;
+            }
 
-                    if (!incuDlg.showDialog()) {
-                        return false;
-                    }
-
-                    boolean doAssemble = incuDlg.getNextBoolean();
-                    if (!doAssemble) {
-                        IJ.log("  Incucyte assembly skipped by user.");
-                    } else {
-                        IJ.log("");
-                        IJ.log("Assembling Incucyte frames into stacks...");
-                        List<String> assembled = IncucyteImporter.assembleStacks(
-                                dir, assembledDir, config.frameIntervalMin);
-                        IJ.log("Assembly complete: " + assembled.size() + " stack(s) created.");
-                        useAssembledDir = true;
-                    }
-                } else {
-                    // Headless mode: auto-assemble
-                    IJ.log("Assembling Incucyte frames into stacks (headless)...");
-                    List<String> assembled = IncucyteImporter.assembleStacks(
-                            dir, assembledDir, config.frameIntervalMin);
-                    IJ.log("Assembly complete: " + assembled.size() + " stack(s) created.");
-                    useAssembledDir = true;
-                }
+            boolean doAssemble = incuDlg.getNextBoolean();
+            if (!doAssemble) {
+                IJ.log("  Incucyte assembly skipped by user.");
             } else {
-                IJ.log("Incucyte stacks already assembled in .circadian/assembled/");
+                IJ.log("");
+                IJ.log("Assembling Incucyte frames into stacks...");
+                List<String> assembled = IncucyteImporter.assembleStacks(
+                        dir, assembledDir, config.frameIntervalMin);
+                IJ.log("Assembly complete: " + assembled.size() + " stack(s) created.");
                 useAssembledDir = true;
+
+                // Save auto-detected frame intervals for future runs
+                saveFrameIntervalsFromAssembled(directory, assembledDir);
             }
         }
 
@@ -191,62 +191,135 @@ public class PreprocessingAnalysis implements Analysis {
         IJ.log("Pre-processing " + tifFiles.length + " file(s)...");
         IJ.log("  Reporter type: " + config.reporterType);
 
-        // Per-file crop regions: stored in .circadian/crop_regions.txt
+        // Per-file crop regions and alignment angles
         String cropRegionsPath = directory + ".circadian" + File.separator + "crop_regions.txt";
         Map<String, Rectangle> perFileCrops = loadCropRegions(cropRegionsPath);
+        String alignAnglesPath = directory + ".circadian" + File.separator + "alignment_angles.txt";
+        Map<String, Double> perFileAngles = loadAlignmentAngles(alignAnglesPath);
 
-        // Interactive crop: show each image sequentially for per-file crop drawing
-        if (config.cropEnabled && !headless) {
-            // Check if we already have saved crops for all files
+        boolean needCropInteraction = false;
+        boolean needAlignInteraction = false;
+
+        // --- Check existing crop regions ---
+        if (config.cropEnabled) {
+            // Check if we already have saved crops for any files
+            boolean anyCropsDefined = false;
             boolean allCropsDefined = true;
             for (String tf : tifFiles) {
                 String base = stripExtension(tf);
-                if (!perFileCrops.containsKey(base)) {
+                if (perFileCrops.containsKey(base)) {
+                    anyCropsDefined = true;
+                } else {
                     allCropsDefined = false;
-                    break;
                 }
             }
 
-            if (!allCropsDefined) {
-                IJ.log("");
-                IJ.log("Crop: Drawing crop regions for each image...");
+            // Also check for legacy single-crop values in config
+            if (!anyCropsDefined && config.cropX >= 0) {
+                anyCropsDefined = true;
+                // Migrate legacy single crop to per-file (apply same crop to all)
+                IJ.log("  Migrating legacy crop region to per-file format");
+                for (String tf : tifFiles) {
+                    String base = stripExtension(tf);
+                    perFileCrops.put(base, new Rectangle(config.cropX, config.cropY,
+                            config.cropWidth, config.cropHeight));
+                }
+                allCropsDefined = true;
+            }
 
-                String[] sortedTifs = tifFiles.clone();
-                Arrays.sort(sortedTifs);
+            // If existing crops found, ask user whether to reuse or redraw
+            if (anyCropsDefined) {
+                PipelineDialog cropReuseDlg = new PipelineDialog("CHRONOS — Crop Regions");
+                cropReuseDlg.addHeader("Existing Crop Regions Found");
+                cropReuseDlg.addMessage("Saved crop regions were found from a previous run.");
+                for (Map.Entry<String, Rectangle> entry : perFileCrops.entrySet()) {
+                    Rectangle r = entry.getValue();
+                    cropReuseDlg.addMessage("  " + entry.getKey() + ": "
+                            + r.width + "x" + r.height + " at (" + r.x + "," + r.y + ")");
+                }
+                cropReuseDlg.addSpacer(4);
+                cropReuseDlg.addToggle("Use existing crop regions", true);
 
-                for (int ti = 0; ti < sortedTifs.length; ti++) {
-                    String tf = sortedTifs[ti];
-                    String baseName = stripExtension(tf);
-
-                    // Skip if crop already defined for this file
-                    if (perFileCrops.containsKey(baseName)) {
-                        IJ.log("  [" + (ti + 1) + "/" + sortedTifs.length + "] "
-                                + baseName + ": using saved crop");
-                        continue;
-                    }
-
-                    ImagePlus imp = IJ.openImage(processDir + tf);
-                    if (imp == null) {
-                        IJ.log("  [" + (ti + 1) + "/" + sortedTifs.length + "] "
-                                + baseName + ": could not load, skipping");
-                        continue;
-                    }
-
-                    ImagePlus proj;
-                    if (imp.getStackSize() > 1) {
-                        ZProjector zp = new ZProjector(imp);
-                        zp.setMethod(ZProjector.AVG_METHOD);
-                        zp.doProjection();
-                        proj = zp.getProjection();
+                if (cropReuseDlg.showDialog()) {
+                    boolean reuse = cropReuseDlg.getNextBoolean();
+                    if (!reuse) {
+                        perFileCrops.clear();
+                        allCropsDefined = false;
+                        IJ.log("  User chose to redraw crop regions.");
                     } else {
-                        proj = imp.duplicate();
+                        IJ.log("  Using saved crop regions (" + perFileCrops.size() + " files).");
                     }
+                }
+            }
+            needCropInteraction = !allCropsDefined;
+        }
+
+        // --- Check existing alignment angles ---
+        if (config.alignEnabled) {
+            boolean anyAnglesDefined2 = false;
+            boolean allAnglesDefined2 = true;
+            for (String tf : tifFiles) {
+                String base = stripExtension(tf);
+                if (perFileAngles.containsKey(base)) anyAnglesDefined2 = true;
+                else allAnglesDefined2 = false;
+            }
+            if (anyAnglesDefined2) {
+                PipelineDialog reuseDlg2 = new PipelineDialog("CHRONOS — Alignment");
+                reuseDlg2.addHeader("Existing Alignment Angles Found");
+                reuseDlg2.addMessage("Saved alignment angles were found from a previous run.");
+                for (Map.Entry<String, Double> entry : perFileAngles.entrySet()) {
+                    reuseDlg2.addMessage("  " + entry.getKey() + ": "
+                            + String.format("%.1f", entry.getValue()) + "\u00B0");
+                }
+                reuseDlg2.addSpacer(4);
+                reuseDlg2.addToggle("Use existing alignment angles", true);
+                if (reuseDlg2.showDialog() && !reuseDlg2.getNextBoolean()) {
+                    perFileAngles.clear();
+                    allAnglesDefined2 = false;
+                    IJ.log("  User chose to redraw alignment lines.");
+                }
+            }
+            needAlignInteraction = !allAnglesDefined2;
+        }
+
+        // --- Combined interactive pass: crop + align per image in one go ---
+        if (needCropInteraction || needAlignInteraction) {
+            IJ.log("");
+            IJ.log("Interactive setup for each image...");
+
+            String[] sortedTifs = tifFiles.clone();
+            Arrays.sort(sortedTifs);
+
+            for (int ti = 0; ti < sortedTifs.length; ti++) {
+                String tf = sortedTifs[ti];
+                String baseName = stripExtension(tf);
+
+                boolean doCrop = needCropInteraction && !perFileCrops.containsKey(baseName);
+                boolean doAlign = needAlignInteraction && !perFileAngles.containsKey(baseName);
+                if (!doCrop && !doAlign) continue;
+
+                ImagePlus imp = IJ.openImage(processDir + tf);
+                if (imp == null) {
+                    IJ.log("  [" + (ti + 1) + "/" + sortedTifs.length + "] "
+                            + baseName + ": could not load, skipping");
+                    continue;
+                }
+
+                ImagePlus proj;
+                if (imp.getStackSize() > 1) {
+                    ZProjector zp = new ZProjector(imp);
+                    zp.setMethod(ZProjector.AVG_METHOD);
+                    zp.doProjection();
+                    proj = zp.getProjection();
+                } else {
+                    proj = imp.duplicate();
+                }
+                IJ.run(proj, "Enhance Contrast", "saturated=0.35");
+                imp.close();
+
+                if (doCrop) {
                     proj.setTitle("CROP [" + (ti + 1) + "/" + sortedTifs.length + "] — " + baseName);
-                    IJ.run(proj, "Enhance Contrast", "saturated=0.35");
-                    imp.close();
-
                     proj.show();
-
                     WaitForUserDialog cropWait = new WaitForUserDialog(
                             "CHRONOS — Crop [" + (ti + 1) + "/" + sortedTifs.length + "]",
                             "Image: " + baseName + "\n\n" +
@@ -254,7 +327,6 @@ public class PreprocessingAnalysis implements Analysis {
                             "then press OK.\n\n" +
                             "Press ESC to skip cropping for this image.");
                     cropWait.show();
-
                     if (!cropWait.escPressed()) {
                         Roi cropRoi = proj.getRoi();
                         if (cropRoi != null && cropRoi.getType() == Roi.RECTANGLE) {
@@ -263,26 +335,43 @@ public class PreprocessingAnalysis implements Analysis {
                             IJ.log("  [" + (ti + 1) + "/" + sortedTifs.length + "] "
                                     + baseName + ": crop " + r.width + "x" + r.height
                                     + " at (" + r.x + "," + r.y + ")");
-                        } else {
-                            IJ.log("  [" + (ti + 1) + "/" + sortedTifs.length + "] "
-                                    + baseName + ": no rectangle drawn, skipping crop");
                         }
-                    } else {
-                        IJ.log("  [" + (ti + 1) + "/" + sortedTifs.length + "] "
-                                + baseName + ": crop skipped");
                     }
-
-                    proj.close();
+                    proj.deleteRoi();
                 }
 
-                // Save all per-file crops
-                if (!perFileCrops.isEmpty()) {
-                    saveCropRegions(cropRegionsPath, perFileCrops);
+                if (doAlign) {
+                    proj.setTitle("ALIGN [" + (ti + 1) + "/" + sortedTifs.length + "] — " + baseName);
+                    proj.show();
+                    WaitForUserDialog alignWait = new WaitForUserDialog(
+                            "CHRONOS — Align [" + (ti + 1) + "/" + sortedTifs.length + "]",
+                            "Image: " + baseName + "\n\n" +
+                            "Draw a LINE through the midline of the slice\n" +
+                            "(the axis you want to be vertical),\n" +
+                            "then press OK.\n\n" +
+                            "Press ESC to skip alignment for this image.");
+                    alignWait.show();
+                    if (!alignWait.escPressed()) {
+                        Roi lineRoi = proj.getRoi();
+                        if (lineRoi != null && lineRoi.isLine()) {
+                            java.awt.geom.Line2D.Double line = getLineCoords(lineRoi);
+                            double dx = line.x2 - line.x1;
+                            double dy = line.y2 - line.y1;
+                            double angleDeg = Math.toDegrees(Math.atan2(dx, dy));
+                            perFileAngles.put(baseName, angleDeg);
+                            IJ.log("  [" + (ti + 1) + "/" + sortedTifs.length + "] "
+                                    + baseName + ": rotation = " + String.format("%.1f", angleDeg) + "°");
+                        }
+                    }
                 }
-            } else {
-                IJ.log("  Using saved per-file crop regions (" + perFileCrops.size() + " files)");
+
+                proj.close();
             }
+
+            if (!perFileCrops.isEmpty()) saveCropRegions(cropRegionsPath, perFileCrops);
+            if (!perFileAngles.isEmpty()) saveAlignmentAngles(alignAnglesPath, perFileAngles);
         }
+
 
         for (int f = 0; f < tifFiles.length; f++) {
             String fileName = tifFiles[f];
@@ -326,6 +415,29 @@ public class PreprocessingAnalysis implements Analysis {
                 IJ.log("  Step 0: Crop — no crop region defined for this file, skipping");
             } else {
                 IJ.log("  Step 0: Crop — skipped");
+            }
+
+            // Step 0b: Alignment rotation
+            Double fileAngle = perFileAngles.get(baseName0);
+            if (config.alignEnabled && fileAngle != null && Math.abs(fileAngle) > 0.1) {
+                IJ.log("  Step 0b: Align (rotate " + String.format("%.1f", fileAngle) + "°)");
+                ImageStack rotatedStack = new ImageStack(imp.getWidth(), imp.getHeight());
+                ImageStack srcStack2 = imp.getStack();
+                for (int s = 1; s <= srcStack2.getSize(); s++) {
+                    ImageProcessor ip = srcStack2.getProcessor(s).duplicate();
+                    ip.setInterpolationMethod(ImageProcessor.BILINEAR);
+                    ip.setBackgroundValue(0);
+                    ip.rotate(-fileAngle); // negative because we want to undo the tilt
+                    rotatedStack.addSlice(srcStack2.getSliceLabel(s), ip);
+                }
+                ImagePlus rotated = new ImagePlus(imp.getTitle(), rotatedStack);
+                rotated.setCalibration(imp.getCalibration().copy());
+                imp.close();
+                imp = rotated;
+            } else if (config.alignEnabled) {
+                IJ.log("  Step 0b: Align — no angle defined for this file, skipping");
+            } else {
+                IJ.log("  Step 0b: Align — skipped");
             }
 
             // Step 1: Frame Binning
@@ -501,11 +613,10 @@ public class PreprocessingAnalysis implements Analysis {
     private boolean showDialog(SessionConfig config) {
         PipelineDialog dlg = new PipelineDialog("CHRONOS — Pre-processing");
 
-        // --- Recording Setup ---
-        dlg.addHeader("Recording Setup");
-        String[] reporterTypes = {"Fluorescent", "Bioluminescence", "Calcium"};
-        final JComboBox<String> reporterCombo = dlg.addChoice("Reporter Type", reporterTypes, config.reporterType);
-        dlg.addNumericField("Frame Interval (minutes)", config.frameIntervalMin, 1);
+        dlg.addHeader("Recording");
+        dlg.addMessage("Reporter: <b>" + config.reporterType + "</b>  |  Interval: <b>"
+                + config.frameIntervalMin + "</b> min");
+        dlg.addHelpText("Change these in the main Settings dialog.");
 
         // --- Crop ---
         dlg.addSpacer(4);
@@ -513,74 +624,136 @@ public class PreprocessingAnalysis implements Analysis {
         dlg.addToggle("Crop images to sample region", config.cropEnabled);
         dlg.addHelpText("Draw a rectangle on each image to exclude empty well space. Each image gets its own crop region since slices may be positioned differently.");
 
+        // --- Alignment ---
+        dlg.addSpacer(4);
+        dlg.addHeader("Slice Alignment");
+        dlg.addToggle("Align slice orientation", config.alignEnabled);
+        dlg.addHelpText("Draw a line through the midline of each slice. The pipeline rotates the image so the line is vertical, ensuring consistent anatomical orientation across all recordings.");
+
         // --- Frame Binning ---
         dlg.addSpacer(4);
         dlg.addHeader("Frame Binning");
-        final ToggleSwitch binToggle = dlg.addToggle("Enable", config.binningEnabled);
+        ToggleSwitch binToggle = dlg.addToggle("Enable", config.binningEnabled);
         dlg.addHelpText("Reduces temporal resolution by averaging or summing groups of consecutive frames. Useful for noisy recordings — increases SNR at the cost of time resolution.");
-        dlg.addNumericField("Bin Factor", config.binFactor, 0);
+        final JTextField binFactorField = dlg.addNumericField("Bin Factor", config.binFactor, 0);
         String[] binMethods = {"Mean", "Sum"};
-        dlg.addChoice("Method", binMethods, config.binMethod);
+        final JComboBox<String> binMethodCombo = dlg.addChoice("Method", binMethods, config.binMethod);
+        // Enable/disable params based on toggle
+        binFactorField.setEnabled(config.binningEnabled);
+        binMethodCombo.setEnabled(config.binningEnabled);
+        binToggle.addChangeListener(new Runnable() {
+            public void run() {
+                boolean on = binToggle.isSelected();
+                binFactorField.setEnabled(on);
+                binMethodCombo.setEnabled(on);
+            }
+        });
 
         // --- Motion Correction ---
         dlg.addSpacer(4);
         dlg.addHeader("Motion Correction");
-        dlg.addToggle("Enable", config.motionCorrectionEnabled);
+        ToggleSwitch mcToggle = dlg.addToggle("Enable", config.motionCorrectionEnabled);
         dlg.addHelpText("Corrects sample drift across frames. SIFT is recommended — handles rotation and is robust to intensity changes (e.g. circadian oscillations). Cross-Correlation is faster but translation-only.");
         String[] mcMethods = {"SIFT", "Cross-Correlation"};
-        dlg.addChoice("Method", mcMethods, config.motionCorrectionMethod);
+        final JComboBox<String> mcMethodCombo = dlg.addChoice("Method", mcMethods, config.motionCorrectionMethod);
         String[] refMethods = {"Mean Projection", "Median Projection", "First Frame"};
         String currentRef = refToDisplay(config.motionCorrectionReference);
-        dlg.addChoice("Reference (for Cross-Correlation)", refMethods, currentRef);
+        final JComboBox<String> mcRefCombo = dlg.addChoice("Reference (for Cross-Correlation)", refMethods, currentRef);
+        mcMethodCombo.setEnabled(config.motionCorrectionEnabled);
+        mcRefCombo.setEnabled(config.motionCorrectionEnabled);
+        mcToggle.addChangeListener(new Runnable() {
+            public void run() {
+                boolean on = mcToggle.isSelected();
+                mcMethodCombo.setEnabled(on);
+                mcRefCombo.setEnabled(on);
+            }
+        });
 
         // --- Background Subtraction ---
         dlg.addSpacer(4);
         dlg.addHeader("Background Subtraction");
+        boolean bgEnabled = !"None".equalsIgnoreCase(config.backgroundMethod);
+        ToggleSwitch bgToggle = dlg.addToggle("Enable", bgEnabled);
         dlg.addHelpText("Removes non-uniform background illumination. Rolling Ball estimates background as a ball rolling under the intensity surface. Minimum Projection subtracts the minimum value at each pixel across all frames.");
-        String[] bgMethods = {"None", "Rolling Ball", "Minimum Projection"};
-        dlg.addChoice("Method", bgMethods, config.backgroundMethod);
-        dlg.addNumericField("Radius (pixels)", config.backgroundRadius, 0);
+        String[] bgMethods = {"Rolling Ball", "Minimum Projection"};
+        String bgDefault = bgEnabled ? config.backgroundMethod : "Rolling Ball";
+        final JComboBox<String> bgMethodCombo = dlg.addChoice("Method", bgMethods, bgDefault);
+        final JTextField bgRadiusField = dlg.addNumericField("Radius (pixels)", config.backgroundRadius, 0);
+        bgMethodCombo.setEnabled(bgEnabled);
+        bgRadiusField.setEnabled(bgEnabled);
+        bgToggle.addChangeListener(new Runnable() {
+            public void run() {
+                boolean on = bgToggle.isSelected();
+                bgMethodCombo.setEnabled(on);
+                bgRadiusField.setEnabled(on);
+            }
+        });
 
         // --- Bleach / Decay Correction ---
         dlg.addSpacer(4);
         dlg.addHeader("Bleach / Decay Correction");
+        boolean bleachEnabled = !"None".equalsIgnoreCase(config.bleachMethod);
+        ToggleSwitch bleachToggle = dlg.addToggle("Enable", bleachEnabled);
         dlg.addHelpText("Corrects for signal decay over time. Auto-selected based on reporter type: Sliding Percentile for bioluminescence (luciferin depletion), Bi-exponential for fluorescent/calcium reporters (photobleaching).");
-        String[] bleachMethods = {"None", "Mono-exponential", "Bi-exponential",
+        String[] bleachMethods = {"Mono-exponential", "Bi-exponential",
                 "Sliding Percentile", "Simple Ratio"};
-        final JComboBox<String> bleachCombo = dlg.addChoice("Method", bleachMethods, config.bleachMethod);
-        dlg.addNumericField("Percentile Window (frames)", config.bleachPercentileWindow, 0);
-        dlg.addNumericField("Percentile (%)", config.bleachPercentile, 1);
-
-        // Auto-select bleach method when reporter type changes
-        reporterCombo.addItemListener(new ItemListener() {
-            @Override
-            public void itemStateChanged(ItemEvent e) {
-                if (e.getStateChange() == ItemEvent.SELECTED) {
-                    String reporter = (String) reporterCombo.getSelectedItem();
-                    if ("Bioluminescence".equals(reporter)) {
-                        bleachCombo.setSelectedItem("Sliding Percentile");
-                    } else {
-                        bleachCombo.setSelectedItem("Bi-exponential");
-                    }
-                }
+        String bleachDefault = bleachEnabled ? config.bleachMethod : "Bi-exponential";
+        final JComboBox<String> bleachCombo = dlg.addChoice("Method", bleachMethods, bleachDefault);
+        final JTextField bleachWindowField = dlg.addNumericField("Percentile Window (frames)", config.bleachPercentileWindow, 0);
+        final JTextField bleachPctField = dlg.addNumericField("Percentile (%)", config.bleachPercentile, 1);
+        bleachCombo.setEnabled(bleachEnabled);
+        bleachWindowField.setEnabled(bleachEnabled);
+        bleachPctField.setEnabled(bleachEnabled);
+        bleachToggle.addChangeListener(new Runnable() {
+            public void run() {
+                boolean on = bleachToggle.isSelected();
+                bleachCombo.setEnabled(on);
+                bleachWindowField.setEnabled(on);
+                bleachPctField.setEnabled(on);
             }
         });
+
+        // Reporter type is now in global Settings — bleach default set via applyReporterDefaults()
 
         // --- Spatial Filter ---
         dlg.addSpacer(4);
         dlg.addHeader("Spatial Filter");
+        boolean spatialEnabled = !"None".equalsIgnoreCase(config.spatialFilterType);
+        ToggleSwitch spatialToggle = dlg.addToggle("Enable", spatialEnabled);
         dlg.addHelpText("Smooths each frame to reduce pixel noise. Gaussian preserves edges better at low sigma. Median is better for salt-and-pepper noise but can blur fine features.");
-        String[] spatialTypes = {"None", "Gaussian", "Median"};
-        dlg.addChoice("Type", spatialTypes, config.spatialFilterType);
-        dlg.addNumericField("Sigma / Radius (pixels)", config.spatialFilterRadius, 1);
+        String[] spatialTypes = {"Gaussian", "Median"};
+        String spatialDefault = spatialEnabled ? config.spatialFilterType : "Gaussian";
+        final JComboBox<String> spatialCombo = dlg.addChoice("Type", spatialTypes, spatialDefault);
+        final JTextField spatialRadiusField = dlg.addNumericField("Sigma / Radius (pixels)", config.spatialFilterRadius, 1);
+        spatialCombo.setEnabled(spatialEnabled);
+        spatialRadiusField.setEnabled(spatialEnabled);
+        spatialToggle.addChangeListener(new Runnable() {
+            public void run() {
+                boolean on = spatialToggle.isSelected();
+                spatialCombo.setEnabled(on);
+                spatialRadiusField.setEnabled(on);
+            }
+        });
 
         // --- Temporal Filter ---
         dlg.addSpacer(4);
         dlg.addHeader("Temporal Filter");
+        boolean temporalEnabled = !"None".equalsIgnoreCase(config.temporalFilterType);
+        ToggleSwitch temporalToggle = dlg.addToggle("Enable", temporalEnabled);
         dlg.addHelpText("Smooths intensity across time at each pixel. Reduces frame-to-frame noise while preserving slower circadian oscillations. Keep window small relative to period.");
-        String[] temporalTypes = {"None", "Moving Average", "Savitzky-Golay"};
-        dlg.addChoice("Type", temporalTypes, config.temporalFilterType);
-        dlg.addNumericField("Window (frames)", config.temporalFilterWindow, 0);
+        String[] temporalTypes = {"Moving Average", "Savitzky-Golay"};
+        String temporalDefault = temporalEnabled ? config.temporalFilterType : "Moving Average";
+        final JComboBox<String> temporalCombo = dlg.addChoice("Type", temporalTypes, temporalDefault);
+        final JTextField temporalWindowField = dlg.addNumericField("Window (frames)", config.temporalFilterWindow, 0);
+        temporalCombo.setEnabled(temporalEnabled);
+        temporalWindowField.setEnabled(temporalEnabled);
+        temporalToggle.addChangeListener(new Runnable() {
+            public void run() {
+                boolean on = temporalToggle.isSelected();
+                temporalCombo.setEnabled(on);
+                temporalWindowField.setEnabled(on);
+            }
+        });
 
         // Show dialog
         if (!dlg.showDialog()) {
@@ -588,31 +761,35 @@ public class PreprocessingAnalysis implements Analysis {
         }
 
         // Read values back into config
-        config.reporterType = dlg.getNextChoice();         // Reporter Type
-        config.frameIntervalMin = dlg.getNextNumber();     // Frame Interval
+        // (Reporter Type and Frame Interval are now in the global Settings dialog)
 
         config.cropEnabled = dlg.getNextBoolean();           // Crop Enable
+        config.alignEnabled = dlg.getNextBoolean();          // Align Enable
 
         config.binningEnabled = dlg.getNextBoolean();      // Binning Enable
         config.binFactor = Math.max(1, (int) dlg.getNextNumber()); // Bin Factor
         config.binMethod = dlg.getNextChoice();            // Bin Method
 
         config.motionCorrectionEnabled = dlg.getNextBoolean(); // Motion Enable
-        config.motionCorrectionMethod = dlg.getNextChoice();  // Motion Method (SIFT or Cross-Correlation)
-        config.motionCorrectionReference = displayToRef(dlg.getNextChoice()); // Reference (for Cross-Correlation)
+        config.motionCorrectionMethod = dlg.getNextChoice();  // Motion Method
+        config.motionCorrectionReference = displayToRef(dlg.getNextChoice()); // Reference
 
-        config.backgroundMethod = dlg.getNextChoice();     // BG Method
+        boolean bgOn = dlg.getNextBoolean();               // BG Enable
+        config.backgroundMethod = bgOn ? dlg.getNextChoice() : "None"; // BG Method
         config.backgroundRadius = dlg.getNextNumber();     // BG Radius
 
-        config.bleachMethod = dlg.getNextChoice();         // Bleach Method
-        config.bleachPercentileWindow = Math.max(1, (int) dlg.getNextNumber()); // Percentile Window
-        config.bleachPercentile = dlg.getNextNumber();     // Percentile
+        boolean bleachOn = dlg.getNextBoolean();           // Bleach Enable
+        config.bleachMethod = bleachOn ? dlg.getNextChoice() : "None"; // Bleach Method
+        config.bleachPercentileWindow = Math.max(1, (int) dlg.getNextNumber());
+        config.bleachPercentile = dlg.getNextNumber();
 
-        config.spatialFilterType = dlg.getNextChoice();    // Spatial Type
-        config.spatialFilterRadius = dlg.getNextNumber();  // Spatial Radius
+        boolean spatialOn = dlg.getNextBoolean();          // Spatial Enable
+        config.spatialFilterType = spatialOn ? dlg.getNextChoice() : "None";
+        config.spatialFilterRadius = dlg.getNextNumber();
 
-        config.temporalFilterType = dlg.getNextChoice();   // Temporal Type
-        config.temporalFilterWindow = Math.max(1, (int) dlg.getNextNumber()); // Temporal Window
+        boolean temporalOn = dlg.getNextBoolean();         // Temporal Enable
+        config.temporalFilterType = temporalOn ? dlg.getNextChoice() : "None";
+        config.temporalFilterWindow = Math.max(1, (int) dlg.getNextNumber());
 
         return true;
     }
@@ -693,6 +870,154 @@ public class PreprocessingAnalysis implements Analysis {
             }
         } catch (IOException e) {
             IJ.log("Error saving crop regions: " + e.getMessage());
+        } finally {
+            if (pw != null) pw.close();
+        }
+    }
+
+    /**
+     * Saves auto-detected frame intervals from assembled stack calibration data.
+     */
+    private void saveFrameIntervalsFromAssembled(String directory, String assembledDir) {
+        String intervalsPath = directory + ".circadian" + File.separator + "frame_intervals.txt";
+        File aDir = new File(assembledDir);
+        String[] stacks = aDir.list(new FilenameFilter() {
+            public boolean accept(File d, String name) {
+                return name.toLowerCase().endsWith(".tif") || name.toLowerCase().endsWith(".tiff");
+            }
+        });
+        if (stacks == null || stacks.length == 0) return;
+
+        Map<String, Double> intervals = new LinkedHashMap<String, Double>();
+        for (String stack : stacks) {
+            ImagePlus imp = IJ.openImage(assembledDir + File.separator + stack);
+            if (imp != null) {
+                double intervalSec = imp.getCalibration().frameInterval;
+                if (intervalSec > 0) {
+                    String baseName = stripExtension(stack);
+                    intervals.put(baseName, intervalSec / 60.0); // convert to minutes
+                }
+                imp.close();
+            }
+        }
+
+        if (!intervals.isEmpty()) {
+            saveFrameIntervals(intervalsPath, intervals);
+            IJ.log("  Frame intervals saved to .circadian/frame_intervals.txt");
+        }
+    }
+
+    /**
+     * Loads per-file frame intervals from frame_intervals.txt.
+     * Format: baseName=intervalMinutes
+     */
+    private static Map<String, Double> loadFrameIntervals(String path) {
+        Map<String, Double> intervals = new LinkedHashMap<String, Double>();
+        File f = new File(path);
+        if (!f.exists()) return intervals;
+        BufferedReader br = null;
+        try {
+            br = new BufferedReader(new FileReader(f));
+            String line;
+            while ((line = br.readLine()) != null) {
+                line = line.trim();
+                if (line.isEmpty() || line.startsWith("#")) continue;
+                int eq = line.indexOf('=');
+                if (eq < 0) continue;
+                String key = line.substring(0, eq).trim();
+                String val = line.substring(eq + 1).trim();
+                try {
+                    intervals.put(key, Double.parseDouble(val));
+                } catch (NumberFormatException e) { /* skip */ }
+            }
+        } catch (IOException e) {
+            IJ.log("Warning: could not read frame intervals: " + e.getMessage());
+        } finally {
+            if (br != null) { try { br.close(); } catch (IOException ignored) {} }
+        }
+        return intervals;
+    }
+
+    /**
+     * Saves per-file frame intervals to frame_intervals.txt.
+     */
+    private static void saveFrameIntervals(String path, Map<String, Double> intervals) {
+        PrintWriter pw = null;
+        try {
+            pw = new PrintWriter(new BufferedWriter(new FileWriter(path)));
+            pw.println("# CHRONOS frame intervals (minutes)");
+            pw.println("# Auto-detected from Incucyte timestamps");
+            for (Map.Entry<String, Double> entry : intervals.entrySet()) {
+                pw.println(entry.getKey() + "=" + entry.getValue());
+            }
+        } catch (IOException e) {
+            IJ.log("Error saving frame intervals: " + e.getMessage());
+        } finally {
+            if (pw != null) pw.close();
+        }
+    }
+
+    /**
+     * Extracts line coordinates from a line ROI.
+     */
+    private static java.awt.geom.Line2D.Double getLineCoords(Roi lineRoi) {
+        java.awt.Rectangle bounds = lineRoi.getBounds();
+        java.awt.Polygon poly = lineRoi.getPolygon();
+        if (poly != null && poly.npoints >= 2) {
+            return new java.awt.geom.Line2D.Double(
+                    poly.xpoints[0], poly.ypoints[0],
+                    poly.xpoints[1], poly.ypoints[1]);
+        }
+        // Fallback using bounds
+        return new java.awt.geom.Line2D.Double(
+                bounds.x, bounds.y,
+                bounds.x + bounds.width, bounds.y + bounds.height);
+    }
+
+    /**
+     * Loads per-file alignment angles from alignment_angles.txt.
+     */
+    private static Map<String, Double> loadAlignmentAngles(String path) {
+        Map<String, Double> angles = new LinkedHashMap<String, Double>();
+        File f = new File(path);
+        if (!f.exists()) return angles;
+        BufferedReader br = null;
+        try {
+            br = new BufferedReader(new FileReader(f));
+            String line;
+            while ((line = br.readLine()) != null) {
+                line = line.trim();
+                if (line.isEmpty() || line.startsWith("#")) continue;
+                int eq = line.indexOf('=');
+                if (eq < 0) continue;
+                String key = line.substring(0, eq).trim();
+                String val = line.substring(eq + 1).trim();
+                try {
+                    angles.put(key, Double.parseDouble(val));
+                } catch (NumberFormatException e) { /* skip */ }
+            }
+        } catch (IOException e) {
+            IJ.log("Warning: could not read alignment angles: " + e.getMessage());
+        } finally {
+            if (br != null) { try { br.close(); } catch (IOException ignored) {} }
+        }
+        return angles;
+    }
+
+    /**
+     * Saves per-file alignment angles to alignment_angles.txt.
+     */
+    private static void saveAlignmentAngles(String path, Map<String, Double> angles) {
+        PrintWriter pw = null;
+        try {
+            pw = new PrintWriter(new BufferedWriter(new FileWriter(path)));
+            pw.println("# CHRONOS per-file alignment angles (degrees)");
+            pw.println("# Positive = clockwise rotation needed to make midline vertical");
+            for (Map.Entry<String, Double> entry : angles.entrySet()) {
+                pw.println(entry.getKey() + "=" + entry.getValue());
+            }
+        } catch (IOException e) {
+            IJ.log("Error saving alignment angles: " + e.getMessage());
         } finally {
             if (pw != null) pw.close();
         }
