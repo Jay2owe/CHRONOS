@@ -14,8 +14,11 @@ public class SessionConfig {
     public double frameIntervalMin = 10.0;
 
     // --- Crop ---
+    /** Broad crop: loose rectangle before registration to reduce image size */
     public boolean cropEnabled = true;
-    /** Crop rectangle: x, y, width, height in pixels. Null means not yet defined. */
+    /** Tight crop: precise rectangle after registration on the stabilized image */
+    public boolean tightCropEnabled = true;
+    /** Legacy crop rectangle (migrated to per-file format). */
     public int cropX = -1;
     public int cropY = -1;
     public int cropWidth = -1;
@@ -32,10 +35,21 @@ public class SessionConfig {
 
     // --- Motion Correction ---
     public boolean motionCorrectionEnabled = true;
-    /** "SIFT", "Cross-Correlation", or "None" */
-    public String motionCorrectionMethod = "SIFT";
-    /** "first", "mean", or "median" — used by Cross-Correlation method */
+    /** "Automatic", "Phase Correlation", "Phase Correlation + Epoch Detection",
+     *  "Anchor-Patch Tracking", "Cross-Correlation", "SIFT", "Descriptor-Based" */
+    public String motionCorrectionMethod = "Automatic";
+    /** "first", "mean", or "median" — used by correlation-based methods */
     public String motionCorrectionReference = "mean";
+    /** Whether to cache and reuse registration transforms across runs */
+    public boolean motionCorrectionCacheEnabled = true;
+
+    // --- Pre-ROI Filter ---
+    /** "None", or a named preset like "Extract Green (Incucyte GFP)" */
+    public String preRoiFilter = "None";
+
+    // --- LUT ---
+    /** "None", "Green", "Fire", "Cyan Hot", "Grays", "Magenta", "Red", "Blue" */
+    public String lutName = "None";
 
     // --- Background Subtraction ---
     /** "None", "Rolling Ball", "Fixed ROI", or "Minimum Projection" */
