@@ -669,6 +669,64 @@ public class PreprocessingAnalysis implements Analysis {
                             regResult = driftResult3D;
                         }
                         pluginApplied = true;
+                    } else if ("Correct 3D Drift (Manual Landmarks)".equalsIgnoreCase(method)) {
+                        IJ.log("  Step 2c: Motion correction (Correct 3D Drift — Manual Landmarks)");
+                        // Show first frame for user to draw ROI around stable landmarks
+                        ImagePlus roiProj;
+                        if (imp.getStackSize() > 1) {
+                            ZProjector zp2 = new ZProjector(imp);
+                            zp2.setMethod(ZProjector.AVG_METHOD);
+                            zp2.doProjection();
+                            roiProj = zp2.getProjection();
+                        } else {
+                            roiProj = imp.duplicate();
+                        }
+                        IJ.run(roiProj, "Enhance Contrast", "saturated=0.35");
+                        roiProj.setTitle("SELECT LANDMARKS — " + baseName0);
+                        roiProj.show();
+                        WaitForUserDialog roiWait = new WaitForUserDialog(
+                                "CHRONOS — Select Tracking Landmarks",
+                                "Draw a rectangle around STABLE features\n"
+                                + "(scratch marks, tissue edges, well boundary).\n\n"
+                                + "Avoid areas with moving cells.\n"
+                                + "The drift will be computed from this region only.\n\n"
+                                + "Press OK when done.");
+                        roiWait.show();
+                        Rectangle landmarkRoi = null;
+                        if (!roiWait.escPressed()) {
+                            Roi drawnRoi = roiProj.getRoi();
+                            if (drawnRoi != null && drawnRoi.getType() == Roi.RECTANGLE) {
+                                landmarkRoi = drawnRoi.getBounds();
+                                IJ.log("    Landmark ROI: " + landmarkRoi.width + "x" + landmarkRoi.height
+                                        + " at (" + landmarkRoi.x + "," + landmarkRoi.y + ")");
+                            }
+                        }
+                        roiProj.close();
+
+                        if (landmarkRoi != null) {
+                            RegistrationResult driftResultManual =
+                                    MotionCorrector.correctWith3DDriftManual(imp, landmarkRoi);
+                            if (driftResultManual != null) {
+                                ImagePlus corrected = MotionCorrector.applyRegistration(imp, driftResultManual);
+                                if (corrected != imp) {
+                                    imp.close();
+                                    imp = corrected;
+                                }
+                                regResult = driftResultManual;
+                            }
+                        } else {
+                            IJ.log("    No ROI drawn — falling back to automatic Correct 3D Drift");
+                            RegistrationResult driftResult3DFb = MotionCorrector.correctWith3DDrift(imp);
+                            if (driftResult3DFb != null) {
+                                ImagePlus corrected = MotionCorrector.applyRegistration(imp, driftResult3DFb);
+                                if (corrected != imp) {
+                                    imp.close();
+                                    imp = corrected;
+                                }
+                                regResult = driftResult3DFb;
+                            }
+                        }
+                        pluginApplied = true;
                     } else if ("Phase Correlation".equalsIgnoreCase(method)) {
                         IJ.log("  Step 2c: Motion correction (Phase Correlation, ref="
                                 + config.motionCorrectionReference + ")");
@@ -1000,7 +1058,8 @@ public class PreprocessingAnalysis implements Analysis {
         ToggleSwitch mcToggle = dlg.addToggle("Enable", config.motionCorrectionEnabled);
         final JLabel mcHelpLabel = dlg.addHelpText(getMethodHelpText(config.motionCorrectionMethod));
         String[] mcMethods = {"Automatic", "Phase Correlation", "Phase Correlation + Epoch Detection",
-                "Anchor-Patch Tracking", "Cross-Correlation", "SIFT", "Descriptor-Based", "Correct 3D Drift"};
+                "Anchor-Patch Tracking", "Cross-Correlation", "SIFT", "Descriptor-Based",
+                "Correct 3D Drift", "Correct 3D Drift (Manual Landmarks)"};
         final JComboBox<String> mcMethodCombo = dlg.addChoice("Method", mcMethods, config.motionCorrectionMethod);
         String[] refMethods = {"Mean Projection", "Median Projection", "First Frame"};
         String currentRef = refToDisplay(config.motionCorrectionReference);
@@ -1439,6 +1498,10 @@ public class PreprocessingAnalysis implements Analysis {
             return "Cross-correlation based. Computes drift on 8-bit greyscale then applies to original. "
                     + "Robust to moving cells — uses whole-image correlation on tissue landmarks "
                     + "(scratch marks, edges). Best for Incucyte data.";
+        } else if ("Correct 3D Drift (Manual Landmarks)".equalsIgnoreCase(method)) {
+            return "Same as Correct 3D Drift, but you draw a rectangle around stable landmarks "
+                    + "(scratch marks, tissue edges, well boundary) to track. Ignores moving cells "
+                    + "completely. Best when cells confuse automatic registration.";
         }
         return "Corrects sample drift across frames.";
     }

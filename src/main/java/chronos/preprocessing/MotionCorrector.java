@@ -200,6 +200,115 @@ public class MotionCorrector {
     }
 
     /**
+     * Correct drift using Correct 3D Drift, but only compute cross-correlation
+     * within a user-specified ROI region. This allows the user to select stable
+     * landmarks (scratch marks, tissue edges) and ignore moving cells.
+     * The computed shifts are applied to the full image.
+     *
+     * @param imp input stack (any type/colour)
+     * @param roi rectangle defining the landmark region to track
+     * @return RegistrationResult with per-frame shifts, or null if the plugin failed
+     */
+    public static RegistrationResult correctWith3DDriftManual(ImagePlus imp, java.awt.Rectangle roi) {
+        int nSlices = imp.getStackSize();
+        if (nSlices <= 1) {
+            return new RegistrationResult(new double[1], new double[1], new double[]{1.0},
+                    "Correct 3D Drift (Manual)", "plugin");
+        }
+
+        IJ.log("  Running Correct 3D Drift on manual ROI (" + roi.width + "x" + roi.height
+                + " at " + roi.x + "," + roi.y + ", " + nSlices + " frames)...");
+
+        // --- 1. Build 8-bit greyscale cropped to the ROI ---
+        ImageStack croppedStack = new ImageStack(roi.width, roi.height);
+        ImageStack srcStack = imp.getStack();
+        for (int i = 1; i <= nSlices; i++) {
+            ImageProcessor ip = srcStack.getProcessor(i).duplicate();
+            ip.setRoi(roi.x, roi.y, roi.width, roi.height);
+            croppedStack.addSlice(srcStack.getSliceLabel(i), ip.crop());
+        }
+        ImagePlus cropped = new ImagePlus("_3ddrift_roi_tmp", croppedStack);
+        IJ.run(cropped, "8-bit", "");
+        ij.measure.Calibration cal = cropped.getCalibration();
+        cal.pixelWidth = 1.0;
+        cal.pixelHeight = 1.0;
+        cal.pixelDepth = 1.0;
+        cal.setUnit("pixel");
+        cropped.setCalibration(cal);
+
+        cropped.show();
+
+        // --- 2. Clear Log and run ---
+        IJ.log("\\Clear");
+
+        try {
+            IJ.run(cropped, "Correct 3D Drift",
+                    "channel=1 only=0 lowest=1 highest=" + nSlices
+                    + " maximum_shift=50 edge_enhance");
+        } catch (Exception e) {
+            IJ.log("  WARNING: Correct 3D Drift (Manual) failed: " + e.getMessage());
+            cropped.close();
+            return null;
+        }
+
+        // Close cropped and any registered result
+        cropped.close();
+        ImagePlus pluginResult = WindowManager.getCurrentImage();
+        if (pluginResult != null && pluginResult.getTitle().contains("registered")) {
+            pluginResult.close();
+        }
+
+        // --- 3. Parse drift values from Log (same as automatic version) ---
+        String log = IJ.getLog();
+        double[] shiftX = new double[nSlices];
+        double[] shiftY = new double[nSlices];
+        double[] quality = new double[nSlices];
+        java.util.Arrays.fill(quality, 1.0);
+
+        if (log != null) {
+            String[] lines = log.split("\n");
+            for (String line : lines) {
+                line = line.trim();
+                if (!line.toLowerCase().contains("correcting drift")) {
+                    continue;
+                }
+                try {
+                    int frameIdx = -1;
+                    if (line.toLowerCase().startsWith("frame")) {
+                        String[] parts = line.split("\\s+");
+                        if (parts.length >= 2) {
+                            frameIdx = Integer.parseInt(parts[1]) - 1;
+                        }
+                    }
+                    if (frameIdx < 0 || frameIdx >= nSlices) {
+                        continue;
+                    }
+                    String[] parts = line.split("\\s+");
+                    String driftToken = parts[parts.length - 1];
+                    String[] driftParts = driftToken.split(",");
+                    if (driftParts.length >= 2) {
+                        double dx = Double.parseDouble(driftParts[0]);
+                        double dy = Double.parseDouble(driftParts[1]);
+                        shiftX[frameIdx] = -dx;
+                        shiftY[frameIdx] = -dy;
+                    }
+                } catch (NumberFormatException nfe) {
+                    // Skip malformed lines
+                }
+            }
+        }
+
+        double maxShift = 0;
+        for (int i = 0; i < nSlices; i++) {
+            double mag = Math.sqrt(shiftX[i] * shiftX[i] + shiftY[i] * shiftY[i]);
+            if (mag > maxShift) maxShift = mag;
+        }
+        IJ.log("  Correct 3D Drift (Manual) complete. Max shift: " + IJ.d2s(maxShift, 2) + " px");
+
+        return new RegistrationResult(shiftX, shiftY, quality, "Correct 3D Drift (Manual)", "plugin");
+    }
+
+    /**
      * Correct translational drift using FFT cross-correlation.
      *
      * @param imp       input stack
