@@ -8,7 +8,7 @@ A Fiji/ImageJ plugin for automated analysis of circadian rhythms from longitudin
 - **7-module pipeline**: Pre-processing, ROI Definition, Signal Extraction, Rhythm Analysis, Visualization, Export, Cell Tracking
 - **Incucyte import**: Auto-detects Incucyte image sequences (`VID_Well_Field_DDdHHhMMm.tif`), groups by series, assembles into stacks, and incrementally appends new frames
 - **Automatic drift analysis**: Fast 4x-downsampled phase correlation scan (~2s) classifies drift pattern and recommends registration method
-- **8 registration methods**: Automatic, Phase Correlation, Phase Correlation + Epoch Detection, Anchor-Patch Tracking, Cross-Correlation, SIFT, Descriptor-Based, Correct 3D Drift
+- **9 registration methods**: Automatic, Phase Correlation, Phase Correlation + Epoch Detection, Anchor-Patch Tracking, Cross-Correlation, SIFT, Descriptor-Based, Correct 3D Drift, Correct 3D Drift (Manual Landmarks)
 - **Two-stage crop**: Broad crop before registration (loose, speeds up processing) + tight crop after registration (precise, on stabilized image)
 - **Interactive registration approval**: View each registered stack, accept/retry/restart, apply same transforms or method to remaining
 - **Pre-processing**: Alignment rotation, frame binning, background subtraction, bleach/decay correction, spatial and temporal filtering, pre-ROI filter presets, LUT application

@@ -122,8 +122,9 @@ On launch, user chooses between:
 - Angle normalized to [-90°, 90°] so line drawing direction doesn't matter
 - All interactive steps (crop, align, ROI drawing) always run regardless of headless flag
 - Previous crop/alignment/ROI values prompt reuse dialog before applying
-- Motion correction methods: Automatic, Phase Correlation, Phase Correlation + Epoch Detection, Anchor-Patch Tracking, Cross-Correlation, SIFT, Descriptor-Based, Correct 3D Drift
+- Motion correction methods: Automatic, Phase Correlation, Phase Correlation + Epoch Detection, Anchor-Patch Tracking, Cross-Correlation, SIFT, Descriptor-Based, Correct 3D Drift, Correct 3D Drift (Manual Landmarks)
 - Correct 3D Drift: computes drift on 8-bit greyscale (with calibration removed — critical for Incucyte), parses shifts from Log, applies to original stack. Robust to moving cells.
+- Correct 3D Drift (Manual Landmarks): same as above but user draws a rectangle around stable landmarks (scratch marks, tissue edges) — only that region is used for cross-correlation, ignoring moving cells entirely. Falls back to automatic if no ROI drawn.
 - Pre-ROI filter presets: bundled .ijm macros in `src/main/resources/named-filters/`. First preset: "Extract Green (Incucyte GFP)" — HSB saturation + double sliding paraboloid (r=50 + r=15) + median fill.
 - LUT: applied after filtering, before save. Display only, does not modify pixel values.
 - Registration transforms cached to `.circadian/corrected/registration_transforms_{base}.csv` for reuse
