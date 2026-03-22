@@ -25,7 +25,22 @@
 - **No Co-Author**: Do NOT add `Co-Authored-By` lines to commit messages.
 - Git repo is `CHRONOS/` (inner directory, `master` branch).
 
-## Module Index (execution order)
+## Pipeline Modes
+On launch, user chooses between:
+- **Guided Pipeline** (`chronos.GuidedPipeline`) — single interactive session through all stages
+- **Advanced (Module-by-Module)** — select individual modules to run independently
+
+### Guided Pipeline Stages
+1. Settings — reporter type, frame interval, preprocessing params
+2. Image Discovery — scan corrected/assembled/raw, show status, flag mismatches
+3. Assembly — detect/append Incucyte frames
+4. Registration — drift scan, method recommendation, interactive approval per stack, restart/reapply options
+5. ROI Definition — existing Module 2
+6. Signal Extraction — existing Module 3 + whole-image trace option
+7. Signal Isolation — user-provided ImageJ macro (e.g., HSB channel split), then secondary extraction
+8. Cell Tracking — TrackMate+StarDist with per-object-per-frame CSV (TrackID, centroid, intensity, area, perimeter)
+
+### Module Index (Advanced mode, execution order)
 - 1 = Pre-processing (`chronos.preprocessing.PreprocessingAnalysis`)
 - 2 = ROI Definition (`chronos.roi.RoiDefinitionAnalysis`)
 - 3 = Signal Extraction (`chronos.extraction.SignalExtractionAnalysis`)
@@ -39,7 +54,7 @@
 - `chronos/config/` — `SessionConfig`, `SessionConfigIO`
 - `chronos/ui/` — `PipelineDialog`, `ToggleSwitch` (reused from IHF pipeline)
 - `chronos/io/` — `CsvReader`, `CsvWriter`, `RoiIO`, `IncucyteImporter`
-- `chronos/preprocessing/` — Crop, frame binning, motion correction (SIFT + cross-correlation), background subtraction, bleach/decay correction, spatial/temporal filters
+- `chronos/preprocessing/` — Crop, frame binning, motion correction (SIFT, cross-correlation, Correct 3D Drift + 5 others), background subtraction, bleach/decay correction, spatial/temporal filters, pre-ROI filter presets, LUT application
 - `chronos/roi/` — ROI definition, grid generation, D/V split, auto-boundary detection
 - `chronos/extraction/` — Trace extraction, baseline calculation, dF/F, Z-score
 - `chronos/rhythm/` — FFT, autocorrelation, Lomb-Scargle, cosinor fitting, wavelet CWT, JTK_CYCLE, Rayleigh test, CircaCompare
@@ -90,19 +105,29 @@
 
 ## Pre-processing Order
 1. Slice alignment (per-file rotation via user-drawn midline, saved to `.circadian/alignment_angles.txt`)
-2. Crop (per-file interactive rectangle on the **rotated** projection, saved to `.circadian/crop_regions.txt`)
+2. Broad crop (per-file loose rectangle on the **rotated** projection, saved to `.circadian/crop_regions.txt`)
 3. Frame binning (GroupedZProjector)
-4. Motion correction (SIFT default, cross-correlation fallback)
-5. Background subtraction (rolling ball, min projection, fixed ROI)
-6. Bleach/decay correction (bi-exponential for fluorescent, sliding percentile for bioluminescence)
-7. Spatial filter (Gaussian, median)
-8. Temporal filter (moving average)
+4. Motion correction (Automatic default — drift analysis + smart method selection)
+5. Tight crop (per-file precise rectangle on the **registered** mean projection, saved to `.circadian/tight_crop_regions.txt`)
+6. Background subtraction (rolling ball, min projection, fixed ROI)
+7. Bleach/decay correction (bi-exponential for fluorescent, sliding percentile for bioluminescence)
+8. Spatial filter (Gaussian, median)
+9. Temporal filter (moving average)
+10. Pre-ROI filter presets (bundled .ijm macros, e.g., "Extract Green (Incucyte GFP)")
+11. LUT application (Green, Fire, Cyan Hot, etc.)
 
-- Alignment runs first: user draws midline, then projection is rotated so crop is drawn on the aligned image
+- Two-stage crop: broad crop before registration (loose, reduces image size for speed), tight crop after registration (precise, on stabilized image)
+- Alignment runs first: user draws midline, then projection is rotated so broad crop is drawn on the aligned image
 - Rotation uses enlarged canvas (bounding box of rotated rectangle) to prevent clipping
 - Angle normalized to [-90°, 90°] so line drawing direction doesn't matter
 - All interactive steps (crop, align, ROI drawing) always run regardless of headless flag
 - Previous crop/alignment/ROI values prompt reuse dialog before applying
+- Motion correction methods: Automatic, Phase Correlation, Phase Correlation + Epoch Detection, Anchor-Patch Tracking, Cross-Correlation, SIFT, Descriptor-Based, Correct 3D Drift
+- Correct 3D Drift: computes drift on 8-bit greyscale (with calibration removed — critical for Incucyte), parses shifts from Log, applies to original stack. Robust to moving cells.
+- Pre-ROI filter presets: bundled .ijm macros in `src/main/resources/named-filters/`. First preset: "Extract Green (Incucyte GFP)" — HSB saturation + double sliding paraboloid (r=50 + r=15) + median fill.
+- LUT: applied after filtering, before save. Display only, does not modify pixel values.
+- Registration transforms cached to `.circadian/corrected/registration_transforms_{base}.csv` for reuse
+- Drift analysis outputs: `drift_analysis_{base}.csv`, `drift_trace_{base}.csv`, `drift_trace_{base}.png`
 
 ## Global Settings Dialog
 Accessible via "Settings..." button on main pipeline dialog:
