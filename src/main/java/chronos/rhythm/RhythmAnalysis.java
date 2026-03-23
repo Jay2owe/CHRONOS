@@ -355,30 +355,39 @@ public class RhythmAnalysis implements Analysis {
         dlg.addHeader("Period Search Range");
         dlg.addNumericField("Min Period (hours):", config.periodMinHours, 1);
         dlg.addNumericField("Max Period (hours):", config.periodMaxHours, 1);
+        dlg.addHelpText("Typical circadian range: 18-30h. Narrow range = faster, wider = catches ultradian rhythms.");
 
         dlg.addSpacer(8);
         dlg.addHeader("Detrending");
         dlg.addChoice("Detrending Method:", DETREND_METHODS, config.detrendingMethod);
+        dlg.addHelpText("Removes baseline drift before rhythm detection. Linear: simple trend. Sinc Filter: FFT bandpass (pyBOAT-style). EMD: adaptive, no assumptions. LOESS: local polynomial.");
 
         dlg.addSpacer(8);
         dlg.addHeader("Period Estimation Methods");
         dlg.addToggle("FFT", config.runFFT);
+        dlg.addHelpText("Fast Fourier Transform with Hann window. Good for long, stable recordings.");
         dlg.addToggle("Autocorrelation", config.runAutocorrelation);
+        dlg.addHelpText("Normalized ACF with rhythmicity index. Robust period estimate even for noisy data.");
         dlg.addToggle("Lomb-Scargle", config.runLombScargle);
-        dlg.addToggle("Wavelet (Stage 5)", config.runWavelet);
+        dlg.addHelpText("Handles unevenly sampled data and provides significance levels. Slower than FFT.");
+        dlg.addToggle("Wavelet", config.runWavelet);
+        dlg.addHelpText("Morlet CWT — reveals how period and amplitude change over time. Produces scalogram images.");
         dlg.addToggle("JTK_CYCLE (non-parametric)", config.runJTKCycle);
+        dlg.addHelpText("Rank-based test, no waveform assumptions. Best for short time-series (<4 cycles).");
         dlg.addToggle("RAIN (asymmetric waveforms)", config.runRAIN);
         dlg.addHelpText("Detects rhythms with non-sinusoidal shapes (steep rise / slow decay) that JTK and cosinor miss.");
 
         dlg.addSpacer(8);
         dlg.addHeader("Cosinor Fitting");
         dlg.addChoice("Cosinor Model:", COSINOR_MODELS, config.cosinorModel);
+        dlg.addHelpText("Standard: fixed-amplitude sinusoid. Damped: exponentially decaying amplitude (for declining cultures).");
 
         dlg.addSpacer(8);
         dlg.addHeader("Statistics");
         dlg.addNumericField("Significance Threshold:", config.significanceThreshold, 3);
+        dlg.addHelpText("P-value cutoff for rhythmicity. ROIs below this threshold are marked rhythmic.");
         dlg.addToggle("CircaCompare (group comparison)", config.runCircaCompare);
-        dlg.addHelpText("Compares rhythm parameters between ROI groups (e.g. Dorsal vs Ventral).");
+        dlg.addHelpText("Compares rhythm parameters between ROI groups (e.g. Dorsal vs Ventral, Core vs Shell).");
 
         if (!dlg.showDialog()) {
             return false;

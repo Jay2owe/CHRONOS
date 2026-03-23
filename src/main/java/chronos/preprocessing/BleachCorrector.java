@@ -46,7 +46,7 @@ public class BleachCorrector {
         troughVals = new double[troughs.size()];
         for (int i = 0; i < troughs.size(); i++) {
             troughIdx[i] = troughs.get(i)[0];
-            troughVals[i] = troughs.get(i)[1] != 0 ? trace[troughs.get(i)[0]] : trace[troughs.get(i)[0]];
+            troughVals[i] = trace[troughs.get(i)[0]];
         }
         // If too few troughs, use the raw trace
         double[] fitX;
