@@ -10,7 +10,7 @@
 - Required build command:
   - `export JAVA_HOME` to a JDK 17+ installation (e.g. Eclipse Adoptium)
   - `bash mvnw clean package -Denforcer.skip=true`
-- Built artifact: `target/CHRONOS-<version>.jar` (currently `CHRONOS-0.2.0.jar`)
+- Built artifact: `target/CHRONOS-<version>.jar` (currently `CHRONOS-0.3.0.jar`)
 - **Deploy to both Fiji installations:**
   - OneDrive: `~/OneDrive - Imperial College London/ImageJ/Fiji.app/plugins/`
   - Dropbox: `~/UK Dementia Research Institute Dropbox/Brancaccio Lab/Jamie/Fiji.app/plugins/`
@@ -87,7 +87,9 @@ On launch, user chooses between:
 - **JTK_CYCLE** — Non-parametric rank-based rhythmicity test (Hughes et al. 2010)
 - **Cosinor fitting** — Standard or damped sinusoidal model via LevenbergMarquardt
 - **CircaCompare** — Statistical comparison of rhythm parameters between ROI groups
+- **RAIN** — Asymmetric waveform detection via Mack-Wolfe umbrella test (Thaben & Westermark 2014)
 - **Rayleigh test** — Phase coherence across ROIs
+- **Per-Pixel Rhythmicity Maps** — Cosinor on every pixel, generates period/phase/amplitude/R²/p-value heatmaps
 
 ## Detrending Methods
 - None, Linear, Quadratic, Cubic (polynomial)
