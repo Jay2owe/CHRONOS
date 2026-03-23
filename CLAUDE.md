@@ -10,7 +10,7 @@
 - Required build command:
   - `export JAVA_HOME` to a JDK 17+ installation (e.g. Eclipse Adoptium)
   - `bash mvnw clean package -Denforcer.skip=true`
-- Built artifact: `target/CHRONOS-<version>.jar` (currently `CHRONOS-0.3.0.jar`)
+- Built artifact: `target/CHRONOS-<version>.jar` (currently `CHRONOS-0.4.0.jar`)
 - **Deploy to both Fiji installations:**
   - OneDrive: `~/OneDrive - Imperial College London/ImageJ/Fiji.app/plugins/`
   - Dropbox: `~/UK Dementia Research Institute Dropbox/Brancaccio Lab/Jamie/Fiji.app/plugins/`
@@ -102,6 +102,8 @@ On launch, user chooses between:
 - LAP tracker links cells across time with gap-closing
 - Thread-safe via ReentrantLock (TrackMate uses global state)
 - Computes per-cell motility time-series: speed, area, displacement, MSD
+- Morphology metrics: circularity, ramification index, perimeter (for circadian microglia analysis)
+- Morphology time-series saved as Track_Speed/Area/Circularity/Ramification CSVs in traces/
 - Output to `.circadian/tracking/` as CSV trace files
 - Requires TrackMate + StarDist + CSBDeep update sites in Fiji
 - Degrades gracefully if not installed (runtime reflection check)
@@ -176,6 +178,19 @@ Accessible via "Settings..." button on main pipeline dialog:
 - All plots rendered at 3x DPI scale (~300 DPI at print size)
 - Time axes tick at 24h intervals (0, 24, 48, 72...) with light grey grid lines
 - X-axis limits snap to nearest multiple of 24h
+
+## Batch / Headless Mode
+- Run from macro: `run("CHRONOS", "dir=/path/to/experiment mode=advanced modules=1,2,3,4,5")`
+- Or guided: `run("CHRONOS", "dir=/path mode=guided")`
+- Skips all interactive dialogs, forces `hideImageWindows=true`
+- Modules specified as comma-separated numbers (1=Preprocessing, 2=ROI, etc.)
+- Uses saved config from `.circadian/config.txt` if present
+
+## SCN Sub-Region Detection
+- `SubRegionDetector.detectCoreShell()` — k-means (k=2) on intensity within SCN boundary
+- Core = brighter cluster (ventromedial), Shell = dimmer (dorsolateral)
+- Toggle in ROI Definition dialog, requires auto-boundary detection first
+- Generates SCN_Core and SCN_Shell polygon ROIs for CircaCompare group comparison
 
 ## Important Notes
 - SIFT registration requires image to be visible (show/hide automatically)
