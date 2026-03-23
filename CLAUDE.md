@@ -10,7 +10,7 @@
 - Required build command:
   - `export JAVA_HOME` to a JDK 17+ installation (e.g. Eclipse Adoptium)
   - `bash mvnw clean package -Denforcer.skip=true`
-- Built artifact: `target/CHRONOS-<version>.jar` (currently `CHRONOS-0.4.2.jar`)
+- Built artifact: `target/CHRONOS-<version>.jar` (currently `CHRONOS-0.4.3.jar`)
 - **Deploy to both Fiji installations:**
   - OneDrive: `~/OneDrive - Imperial College London/ImageJ/Fiji.app/plugins/`
   - Dropbox: `~/UK Dementia Research Institute Dropbox/Brancaccio Lab/Jamie/Fiji.app/plugins/`
