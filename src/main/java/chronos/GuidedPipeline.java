@@ -59,6 +59,7 @@ public class GuidedPipeline {
     private boolean isolationApplied = false;
     private boolean trackingRan = false;
     private String registrationMethodUsed = "";
+    private final LinkedHashMap<String, Long> stageTimes = new LinkedHashMap<String, Long>();
 
     public GuidedPipeline(String directory, SessionConfig config) {
         this.directory = directory;
@@ -105,17 +106,22 @@ public class GuidedPipeline {
         }
 
         // Stage 2: Assembly
+        long stageStart = System.currentTimeMillis();
         assembledFiles = doAssembly(rawFiles, assembledFiles);
+        stageTimes.put("Assembly", System.currentTimeMillis() - stageStart);
 
         // Stage 3: Registration
+        stageStart = System.currentTimeMillis();
         correctedFiles = listTifs(new File(correctedDir));
         if (!doRegistration(assembledFiles, correctedFiles)) {
             return false; // user cancelled
         }
+        stageTimes.put("Registration", System.currentTimeMillis() - stageStart);
 
         // Stage 4: ROI Definition
         IJ.log("");
         IJ.log("=== Stage 4: ROI Definition ===");
+        stageStart = System.currentTimeMillis();
         RoiDefinitionAnalysis roiModule = new RoiDefinitionAnalysis();
         roiModule.setHeadless(false);
         roiModule.setParallelThreads(1);
@@ -128,36 +134,49 @@ public class GuidedPipeline {
         } catch (Exception e) {
             IJ.log("ROI Definition error: " + e.getMessage());
         }
+        stageTimes.put("ROI Definition", System.currentTimeMillis() - stageStart);
 
         // Stage 5: Raw Signal Extraction
         IJ.log("");
         IJ.log("=== Stage 5: Signal Extraction ===");
+        stageStart = System.currentTimeMillis();
         doSignalExtraction();
+        stageTimes.put("Signal Extraction", System.currentTimeMillis() - stageStart);
 
         // Stage 6: Signal Isolation (Optional)
         IJ.log("");
         IJ.log("=== Stage 6: Signal Isolation ===");
+        stageStart = System.currentTimeMillis();
         doSignalIsolation();
+        stageTimes.put("Signal Isolation", System.currentTimeMillis() - stageStart);
 
         // Stage 7: Rhythm Analysis
         IJ.log("");
         IJ.log("=== Stage 7: Rhythm Analysis ===");
+        stageStart = System.currentTimeMillis();
         doRhythmAnalysis();
+        stageTimes.put("Rhythm Analysis", System.currentTimeMillis() - stageStart);
 
         // Stage 8: Visualization
         IJ.log("");
         IJ.log("=== Stage 8: Visualization ===");
+        stageStart = System.currentTimeMillis();
         doVisualization();
+        stageTimes.put("Visualization", System.currentTimeMillis() - stageStart);
 
         // Stage 9: Cell Tracking (Optional)
         IJ.log("");
         IJ.log("=== Stage 9: Cell Tracking ===");
+        stageStart = System.currentTimeMillis();
         doCellTracking();
+        stageTimes.put("Cell Tracking", System.currentTimeMillis() - stageStart);
 
         // Stage 10: Export
         IJ.log("");
         IJ.log("=== Stage 10: Export ===");
+        stageStart = System.currentTimeMillis();
         doExport();
+        stageTimes.put("Export", System.currentTimeMillis() - stageStart);
 
         // Stage 11: Completion
         long totalElapsed = System.currentTimeMillis() - totalStart;
@@ -188,52 +207,89 @@ public class GuidedPipeline {
         dlg.addSpacer(4);
         dlg.addHeader("Background Subtraction");
         boolean bgOn = !"None".equalsIgnoreCase(config.backgroundMethod);
-        dlg.addToggle("Enable", bgOn);
+        ToggleSwitch bgToggle = dlg.addToggle("Enable", bgOn);
         String[] bgMethods = {"Rolling Ball", "Minimum Projection"};
-        dlg.addChoice("Method", bgMethods, bgOn ? config.backgroundMethod : "Rolling Ball");
+        final JComboBox<String> bgMethodCombo = dlg.addChoice("Method", bgMethods, bgOn ? config.backgroundMethod : "Rolling Ball");
         dlg.addHelpText("Rolling Ball: sliding paraboloid removes uneven illumination. Min Projection: subtracts the minimum across all frames.");
-        dlg.addNumericField("Radius (pixels)", config.backgroundRadius, 0);
+        final JTextField bgRadiusField = dlg.addNumericField("Radius (pixels)", config.backgroundRadius, 0);
         dlg.addHelpText("Rolling ball radius. Larger = preserves more structure. Typical: 50 for Incucyte.");
+        bgMethodCombo.setEnabled(bgOn);
+        bgRadiusField.setEnabled(bgOn);
+        bgToggle.addChangeListener(new Runnable() { public void run() {
+            boolean on = bgToggle.isSelected();
+            bgMethodCombo.setEnabled(on);
+            bgRadiusField.setEnabled(on);
+        }});
 
         dlg.addSpacer(4);
         dlg.addHeader("Bleach / Decay Correction");
         boolean bleachOn = !"None".equalsIgnoreCase(config.bleachMethod);
-        dlg.addToggle("Enable", bleachOn);
+        ToggleSwitch bleachToggle = dlg.addToggle("Enable", bleachOn);
         String[] bleachMethods = {"Mono-exponential", "Bi-exponential",
                 "Sliding Percentile", "Simple Ratio"};
-        dlg.addChoice("Method", bleachMethods, bleachOn ? config.bleachMethod : "Bi-exponential");
+        final JComboBox<String> bleachCombo = dlg.addChoice("Method", bleachMethods, bleachOn ? config.bleachMethod : "Bi-exponential");
         dlg.addHelpText("Bi-exponential: best for fluorescent reporters (fast + slow decay). Sliding Percentile: best for bioluminescence (preserves waveform shape).");
-        dlg.addNumericField("Percentile Window (frames)", config.bleachPercentileWindow, 0);
+        final JTextField bleachWindowField = dlg.addNumericField("Percentile Window (frames)", config.bleachPercentileWindow, 0);
         dlg.addHelpText("Window size for sliding percentile. Should span ~1 full circadian cycle.");
-        dlg.addNumericField("Percentile (%)", config.bleachPercentile, 1);
+        final JTextField bleachPctField = dlg.addNumericField("Percentile (%)", config.bleachPercentile, 1);
         dlg.addHelpText("Percentile level (typically 8%). Lower = more aggressive correction.");
+        bleachCombo.setEnabled(bleachOn);
+        bleachWindowField.setEnabled(bleachOn);
+        bleachPctField.setEnabled(bleachOn);
+        bleachToggle.addChangeListener(new Runnable() { public void run() {
+            boolean on = bleachToggle.isSelected();
+            bleachCombo.setEnabled(on);
+            bleachWindowField.setEnabled(on);
+            bleachPctField.setEnabled(on);
+        }});
 
         dlg.addSpacer(4);
         dlg.addHeader("Spatial Filter");
         boolean spatOn = !"None".equalsIgnoreCase(config.spatialFilterType);
-        dlg.addToggle("Enable", spatOn);
+        ToggleSwitch spatToggle = dlg.addToggle("Enable", spatOn);
         String[] spatTypes = {"Gaussian", "Median"};
-        dlg.addChoice("Type", spatTypes, spatOn ? config.spatialFilterType : "Gaussian");
+        final JComboBox<String> spatCombo = dlg.addChoice("Type", spatTypes, spatOn ? config.spatialFilterType : "Gaussian");
         dlg.addHelpText("Gaussian: smooths noise. Median: removes salt-and-pepper noise while preserving edges.");
-        dlg.addNumericField("Sigma / Radius (pixels)", config.spatialFilterRadius, 1);
+        final JTextField spatRadiusField = dlg.addNumericField("Sigma / Radius (pixels)", config.spatialFilterRadius, 1);
+        spatCombo.setEnabled(spatOn);
+        spatRadiusField.setEnabled(spatOn);
+        spatToggle.addChangeListener(new Runnable() { public void run() {
+            boolean on = spatToggle.isSelected();
+            spatCombo.setEnabled(on);
+            spatRadiusField.setEnabled(on);
+        }});
 
         dlg.addSpacer(4);
         dlg.addHeader("Temporal Filter");
         boolean tempOn = !"None".equalsIgnoreCase(config.temporalFilterType);
-        dlg.addToggle("Enable", tempOn);
+        ToggleSwitch tempToggle = dlg.addToggle("Enable", tempOn);
         String[] tempTypes = {"Moving Average", "Savitzky-Golay"};
-        dlg.addChoice("Type", tempTypes, tempOn ? config.temporalFilterType : "Moving Average");
+        final JComboBox<String> tempCombo = dlg.addChoice("Type", tempTypes, tempOn ? config.temporalFilterType : "Moving Average");
         dlg.addHelpText("Smooths intensity fluctuations across frames. Moving Average is simple; Savitzky-Golay preserves peak shapes better.");
-        dlg.addNumericField("Window (frames)", config.temporalFilterWindow, 0);
+        final JTextField tempWindowField = dlg.addNumericField("Window (frames)", config.temporalFilterWindow, 0);
+        tempCombo.setEnabled(tempOn);
+        tempWindowField.setEnabled(tempOn);
+        tempToggle.addChangeListener(new Runnable() { public void run() {
+            boolean on = tempToggle.isSelected();
+            tempCombo.setEnabled(on);
+            tempWindowField.setEnabled(on);
+        }});
 
         dlg.addSpacer(4);
         dlg.addHeader("Frame Binning");
-        dlg.addToggle("Enable", config.binningEnabled);
-        dlg.addNumericField("Bin Factor", config.binFactor, 0);
+        ToggleSwitch binToggle = dlg.addToggle("Enable", config.binningEnabled);
+        final JTextField binFactorField = dlg.addNumericField("Bin Factor", config.binFactor, 0);
         dlg.addHelpText("Groups N consecutive frames into one (e.g., bin factor 3 = every 3 frames averaged). Reduces noise and file size.");
         String[] binMethods = {"Mean", "Sum"};
-        dlg.addChoice("Method", binMethods, config.binMethod);
+        final JComboBox<String> binMethodCombo = dlg.addChoice("Method", binMethods, config.binMethod);
         dlg.addHelpText("Mean: average intensity (preserves scale). Sum: total intensity (preserves photon count).");
+        binFactorField.setEnabled(config.binningEnabled);
+        binMethodCombo.setEnabled(config.binningEnabled);
+        binToggle.addChangeListener(new Runnable() { public void run() {
+            boolean on = binToggle.isSelected();
+            binFactorField.setEnabled(on);
+            binMethodCombo.setEnabled(on);
+        }});
 
         if (!dlg.showDialog()) return false;
 
@@ -1442,20 +1498,31 @@ public class GuidedPipeline {
         String duration = formatDuration(totalElapsed);
         String timestamp = new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(new java.util.Date());
 
-        String[] summaryLines = {
-            "CHRONOS Guided Pipeline Run Summary",
-            "Date: " + timestamp,
-            "Stacks processed: " + stacksProcessed,
-            "Registration method: " + registrationMethodUsed,
-            "ROI files: " + roisDefined,
-            "Trace files: " + tracesExtracted,
-            "Signal isolation: " + (isolationApplied ? "Yes" : "No"),
-            "Cell tracking: " + (trackingRan ? "Yes" : "No"),
-            "Total time: " + duration,
-            "Reporter type: " + config.reporterType,
-            "Frame interval: " + config.frameIntervalMin + " min",
-            "Output directory: " + circadianDir
-        };
+        // Build stage timing summary
+        StringBuilder timingBlock = new StringBuilder();
+        for (Map.Entry<String, Long> entry : stageTimes.entrySet()) {
+            timingBlock.append("  ").append(entry.getKey()).append(": ")
+                    .append(formatDuration(entry.getValue())).append("\n");
+        }
+
+        List<String> summaryLines = new ArrayList<String>();
+        summaryLines.add("CHRONOS Guided Pipeline Run Summary");
+        summaryLines.add("Date: " + timestamp);
+        summaryLines.add("Stacks processed: " + stacksProcessed);
+        summaryLines.add("Registration method: " + registrationMethodUsed);
+        summaryLines.add("ROI files: " + roisDefined);
+        summaryLines.add("Trace files: " + tracesExtracted);
+        summaryLines.add("Signal isolation: " + (isolationApplied ? "Yes" : "No"));
+        summaryLines.add("Cell tracking: " + (trackingRan ? "Yes" : "No"));
+        summaryLines.add("Total time: " + duration);
+        summaryLines.add("Reporter type: " + config.reporterType);
+        summaryLines.add("Frame interval: " + config.frameIntervalMin + " min");
+        summaryLines.add("Output directory: " + circadianDir);
+        summaryLines.add("");
+        summaryLines.add("Per-stage timing:");
+        for (Map.Entry<String, Long> entry : stageTimes.entrySet()) {
+            summaryLines.add("  " + entry.getKey() + ": " + formatDuration(entry.getValue()));
+        }
 
         IJ.log("");
         IJ.log("=== CHRONOS Guided Pipeline Complete ===");
@@ -1490,6 +1557,14 @@ public class GuidedPipeline {
         dlg.addMessage("Trace files: <b>" + tracesExtracted + "</b>");
         dlg.addMessage("Signal isolation: <b>" + (isolationApplied ? "Yes" : "No") + "</b>");
         dlg.addMessage("Cell tracking: <b>" + (trackingRan ? "Yes" : "No") + "</b>");
+        dlg.addSpacer(4);
+        dlg.addHeader("Timing");
+        for (Map.Entry<String, Long> entry : stageTimes.entrySet()) {
+            long ms = entry.getValue();
+            if (ms >= 1000) { // only show stages that took >= 1s
+                dlg.addMessage(entry.getKey() + ": <b>" + formatDuration(ms) + "</b>");
+            }
+        }
         dlg.addSpacer(4);
         dlg.addMessage("Total time: <b>" + duration + "</b>");
         dlg.addMessage("Output: <b>" + circadianDir + "</b>");
