@@ -167,12 +167,28 @@ public class RoiDefinitionAnalysis implements Analysis {
         new File(projDir).mkdirs();
 
         IJ.log("");
-        IJ.log("ROI Definition: Computing projections for all images...");
+        IJ.log("ROI Definition: Checking projections...");
 
         for (int i = 0; i < tifFiles.length; i++) {
             String tifName = tifFiles[i];
             String baseName = baseNames[i];
             IJ.showProgress(i, tifFiles.length);
+
+            // Also check for name without _corrected suffix
+            String strippedBase = baseName.endsWith("_corrected")
+                    ? baseName.substring(0, baseName.length() - "_corrected".length())
+                    : baseName;
+
+            boolean hasMean = new File(projDir + baseName + "_mean.tif").exists()
+                    || new File(projDir + strippedBase + "_mean.tif").exists();
+            boolean hasMax = new File(projDir + baseName + "_max.tif").exists()
+                    || new File(projDir + strippedBase + "_max.tif").exists();
+
+            if (hasMean && hasMax) {
+                IJ.log("  [" + (i + 1) + "/" + tifFiles.length + "] " + baseName
+                        + " — projections already exist, reusing");
+                continue;
+            }
 
             ImagePlus imp = loadImage(directory, tifName);
             if (imp == null) {
@@ -180,22 +196,26 @@ public class RoiDefinitionAnalysis implements Analysis {
                 continue;
             }
 
-            ImagePlus meanProj = computeProjection(imp, ZProjector.AVG_METHOD);
-            new FileSaver(meanProj).saveAsTiff(projDir + baseName + "_mean.tif");
-            meanProj.close();
+            if (!hasMean) {
+                ImagePlus meanProj = computeProjection(imp, ZProjector.AVG_METHOD);
+                new FileSaver(meanProj).saveAsTiff(projDir + baseName + "_mean.tif");
+                meanProj.close();
+            }
 
-            ImagePlus maxProj = computeProjection(imp, ZProjector.MAX_METHOD);
-            new FileSaver(maxProj).saveAsTiff(projDir + baseName + "_max.tif");
-            maxProj.close();
+            if (!hasMax) {
+                ImagePlus maxProj = computeProjection(imp, ZProjector.MAX_METHOD);
+                new FileSaver(maxProj).saveAsTiff(projDir + baseName + "_max.tif");
+                maxProj.close();
+            }
 
             imp.close();
 
             IJ.log("  [" + (i + 1) + "/" + tifFiles.length + "] " + baseName
-                    + " — mean + max projections saved");
+                    + " — projections computed and saved");
         }
 
         IJ.showProgress(1.0);
-        IJ.log("ROI Definition: All projections saved to .circadian/projections/");
+        IJ.log("ROI Definition: All projections ready in .circadian/projections/");
 
         // =====================================================================
         // STEP 4: Sequential interactive ROI drawing — one image at a time
@@ -206,12 +226,14 @@ public class RoiDefinitionAnalysis implements Analysis {
             IJ.log("");
             IJ.log("[" + (fi + 1) + "/" + tifFiles.length + "] Defining ROIs for: " + baseName);
 
-            // Load the appropriate projection
-            String projPath;
-            if (useMaxProj) {
-                projPath = projDir + baseName + "_max.tif";
-            } else {
-                projPath = projDir + baseName + "_mean.tif";
+            // Load the appropriate projection (try exact name, then stripped name)
+            String strippedBase = baseName.endsWith("_corrected")
+                    ? baseName.substring(0, baseName.length() - "_corrected".length())
+                    : baseName;
+            String suffix = useMaxProj ? "_max.tif" : "_mean.tif";
+            String projPath = projDir + baseName + suffix;
+            if (!new File(projPath).exists()) {
+                projPath = projDir + strippedBase + suffix;
             }
             ImagePlus displayProj = IJ.openImage(projPath);
             if (displayProj == null) {
@@ -247,7 +269,11 @@ public class RoiDefinitionAnalysis implements Analysis {
             if (wantAutoDetect) {
                 IJ.log("  Auto-detecting SCN boundary...");
                 // Use mean projection for auto-detect (more reliable)
-                ImagePlus meanForDetect = IJ.openImage(projDir + baseName + "_mean.tif");
+                String meanDetectPath = projDir + baseName + "_mean.tif";
+                if (!new File(meanDetectPath).exists()) {
+                    meanDetectPath = projDir + strippedBase + "_mean.tif";
+                }
+                ImagePlus meanForDetect = IJ.openImage(meanDetectPath);
                 Roi detected = AutoBoundaryDetector.detect(
                         meanForDetect != null ? meanForDetect : displayProj);
                 if (meanForDetect != null) meanForDetect.close();

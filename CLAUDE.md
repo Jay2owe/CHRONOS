@@ -10,11 +10,18 @@
 - Required build command:
   - `export JAVA_HOME` to a JDK 17+ installation (e.g. Eclipse Adoptium)
   - `bash mvnw clean package -Denforcer.skip=true`
-- Built artifact: `target/CHRONOS-0.1.0-SNAPSHOT.jar`
+- Built artifact: `target/CHRONOS-<version>.jar` (currently `CHRONOS-0.2.0.jar`)
 - **Deploy to both Fiji installations:**
   - OneDrive: `~/OneDrive - Imperial College London/ImageJ/Fiji.app/plugins/`
   - Dropbox: `~/UK Dementia Research Institute Dropbox/Brancaccio Lab/Jamie/Fiji.app/plugins/`
 - Launch: `ImageJ-win64.exe` inside either Fiji app folder.
+
+## Versioning
+- Format: `MAJOR.MINOR.PATCH` (no `-SNAPSHOT` suffix — JARs deployed to Fiji must have clean version names)
+  - **MAJOR** — new major feature or architectural rework
+  - **MINOR** — substantial change to an existing feature
+  - **PATCH** — bug fix or small tweak
+- Version is set in `pom.xml` `<version>` tag. Bump it when making changes, choosing the right digit.
 
 ## Build Constraints
 - Maven parent: `pom-scijava:31.1.0`; output must stay Java 8 compatible.

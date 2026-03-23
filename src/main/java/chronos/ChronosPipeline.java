@@ -88,6 +88,47 @@ public class ChronosPipeline implements PlugIn {
             break;
         }
 
+        // 1b. Mode selection: Guided vs Advanced
+        PipelineDialog modeDlg = new PipelineDialog("CHRONOS — Pipeline Mode");
+        modeDlg.addHeader("Choose Pipeline Mode");
+        modeDlg.addSpacer(4);
+        String[] modes = {"Guided Pipeline", "Advanced (Module-by-Module)"};
+        modeDlg.addChoice("Mode", modes, "Guided Pipeline");
+        modeDlg.addSpacer(4);
+        modeDlg.addHelpText("<b>Guided Pipeline</b> — walks you through the entire workflow step-by-step: image discovery, registration with interactive approval, ROI drawing, signal extraction, optional signal isolation, and cell tracking.");
+        modeDlg.addSpacer(2);
+        modeDlg.addHelpText("<b>Advanced</b> — select individual modules to run independently. Use this to re-run specific analysis steps without redoing the entire pipeline.");
+
+        if (!modeDlg.showDialog()) {
+            IJ.log("CHRONOS: Cancelled.");
+            return;
+        }
+
+        String selectedMode = modeDlg.getNextChoice();
+
+        if ("Guided Pipeline".equals(selectedMode)) {
+            // Create session directories
+            createSessionDirectories(directory);
+            // Load config
+            SessionConfig guidedConfig = SessionConfigIO.readFromDirectory(directory);
+            // Auto-detect frame interval
+            File intervalsFileGuided = new File(directory, ".circadian" + File.separator + "frame_intervals.txt");
+            if (intervalsFileGuided.exists()) {
+                Map<String, Double> savedIntervals = loadFrameIntervals(intervalsFileGuided.getAbsolutePath());
+                if (!savedIntervals.isEmpty()) {
+                    guidedConfig.frameIntervalMin = savedIntervals.values().iterator().next();
+                }
+            }
+            // Run guided pipeline
+            GuidedPipeline guided = new GuidedPipeline(directory, guidedConfig);
+            guided.run();
+            // Save config after guided run
+            SessionConfigIO.writeToDirectory(directory, guidedConfig);
+            return;
+        }
+
+        // --- Advanced mode continues below ---
+
         // 2. Scan for TIF files and detect previous session
         dir = new File(directory);
         File circadianDir = new File(directory, ".circadian");

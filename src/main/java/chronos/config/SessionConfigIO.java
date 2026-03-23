@@ -55,6 +55,7 @@ public class SessionConfigIO {
 
         // Crop
         cfg.cropEnabled = getBool(props, "cropEnabled", cfg.cropEnabled);
+        cfg.tightCropEnabled = getBool(props, "tightCropEnabled", cfg.tightCropEnabled);
         cfg.cropX = getInt(props, "cropX", cfg.cropX);
         cfg.cropY = getInt(props, "cropY", cfg.cropY);
         cfg.cropWidth = getInt(props, "cropWidth", cfg.cropWidth);
@@ -72,6 +73,7 @@ public class SessionConfigIO {
         cfg.motionCorrectionEnabled = getBool(props, "motionCorrectionEnabled", cfg.motionCorrectionEnabled);
         cfg.motionCorrectionMethod = getString(props, "motionCorrectionMethod", cfg.motionCorrectionMethod);
         cfg.motionCorrectionReference = getString(props, "motionCorrectionReference", cfg.motionCorrectionReference);
+        cfg.motionCorrectionCacheEnabled = getBool(props, "motionCorrectionCacheEnabled", cfg.motionCorrectionCacheEnabled);
 
         // Background Subtraction
         cfg.backgroundMethod = getString(props, "backgroundMethod", cfg.backgroundMethod);
@@ -167,6 +169,7 @@ public class SessionConfigIO {
 
             pw.println("# Crop");
             pw.println("cropEnabled=" + cfg.cropEnabled);
+            pw.println("tightCropEnabled=" + cfg.tightCropEnabled);
             pw.println("cropX=" + cfg.cropX);
             pw.println("cropY=" + cfg.cropY);
             pw.println("cropWidth=" + cfg.cropWidth);
@@ -187,6 +190,7 @@ public class SessionConfigIO {
             pw.println("motionCorrectionEnabled=" + cfg.motionCorrectionEnabled);
             pw.println("motionCorrectionMethod=" + cfg.motionCorrectionMethod);
             pw.println("motionCorrectionReference=" + cfg.motionCorrectionReference);
+            pw.println("motionCorrectionCacheEnabled=" + cfg.motionCorrectionCacheEnabled);
             pw.println();
 
             pw.println("# Background Subtraction");

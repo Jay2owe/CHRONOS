@@ -5,6 +5,7 @@ import javax.swing.border.EmptyBorder;
 import java.awt.*;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CountDownLatch;
 
 /**
  * Custom dialog with modern toggle switches instead of plain AWT checkboxes.
@@ -31,6 +32,7 @@ public class PipelineDialog {
 
     private final JPanel leftButtonPanel;
     private final JButton backButton;
+    private final CountDownLatch latch = new CountDownLatch(1);
 
     private int toggleIndex = 0;
     private int textFieldIndex = 0;
@@ -38,8 +40,15 @@ public class PipelineDialog {
     private int numericFieldIndex = 0;
 
     public PipelineDialog(String title) {
-        dialog = new JDialog((Frame) null, title, true);
+        this(title, true);
+    }
+
+    public PipelineDialog(String title, boolean modal) {
+        dialog = new JDialog((Frame) null, title, modal);
         dialog.setDefaultCloseOperation(WindowConstants.DISPOSE_ON_CLOSE);
+        dialog.addWindowListener(new java.awt.event.WindowAdapter() {
+            @Override public void windowClosed(java.awt.event.WindowEvent e) { latch.countDown(); }
+        });
 
         contentPanel = new JPanel();
         contentPanel.setLayout(new BoxLayout(contentPanel, BoxLayout.Y_AXIS));
@@ -67,9 +76,9 @@ public class PipelineDialog {
         backButton.setPreferredSize(new Dimension(80, 28));
         okBtn.setPreferredSize(new Dimension(80, 28));
         cancelBtn.setPreferredSize(new Dimension(80, 28));
-        backButton.addActionListener(e -> { wasBackPressed = true; wasCanceled = true; dialog.dispose(); });
-        okBtn.addActionListener(e -> { wasCanceled = false; dialog.dispose(); });
-        cancelBtn.addActionListener(e -> { wasCanceled = true; dialog.dispose(); });
+        backButton.addActionListener(e -> { wasBackPressed = true; wasCanceled = true; latch.countDown(); dialog.dispose(); });
+        okBtn.addActionListener(e -> { wasCanceled = false; latch.countDown(); dialog.dispose(); });
+        cancelBtn.addActionListener(e -> { wasCanceled = true; latch.countDown(); dialog.dispose(); });
         backButton.setVisible(false);
         rightButtonPanel.add(backButton);
         rightButtonPanel.add(cancelBtn);
@@ -222,6 +231,12 @@ public class PipelineDialog {
         }
         dialog.setLocationRelativeTo(null);
         dialog.setVisible(true);
+
+        // For non-modal dialogs, setVisible returns immediately — wait on the latch
+        if (!dialog.isModal()) {
+            try { latch.await(); } catch (InterruptedException ignored) {}
+        }
+
         return !wasCanceled;
     }
 
