@@ -44,8 +44,11 @@ On launch, user chooses between:
 4. Registration — drift scan, method recommendation, interactive approval per stack, restart/reapply options
 5. ROI Definition — existing Module 2
 6. Signal Extraction — existing Module 3 + whole-image trace option
-7. Signal Isolation — user-provided ImageJ macro (e.g., HSB channel split), then secondary extraction
-8. Cell Tracking — TrackMate+StarDist with per-object-per-frame CSV (TrackID, centroid, intensity, area, perimeter)
+7. Signal Isolation — filter preset macros, filtered stack + AVI export, LUT selection
+8. Rhythm Analysis — FFT, autocorrelation, Lomb-Scargle, wavelet, JTK_CYCLE, cosinor, CircaCompare
+9. Visualization — time-series plots, kymographs, spatial maps, polar plots, scalograms
+10. Cell Tracking — TrackMate+StarDist with per-object-per-frame CSV
+11. Export — Excel consolidation, CSV summary, summary statistics
 
 ### Module Index (Advanced mode, execution order)
 - 1 = Pre-processing (`chronos.preprocessing.PreprocessingAnalysis`)

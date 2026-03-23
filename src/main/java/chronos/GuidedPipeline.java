@@ -10,6 +10,8 @@ import chronos.io.RoiIO;
 import chronos.preprocessing.*;
 import chronos.roi.RoiDefinitionAnalysis;
 import chronos.tracking.*;
+import chronos.export.ExportAnalysis;
+import chronos.rhythm.RhythmAnalysis;
 import chronos.visualization.VisualizationAnalysis;
 import chronos.ui.PipelineDialog;
 import chronos.ui.ToggleSwitch;
@@ -130,12 +132,27 @@ public class GuidedPipeline {
         IJ.log("=== Stage 6: Signal Isolation ===");
         doSignalIsolation();
 
-        // Stage 7: Cell Tracking (Optional)
+        // Stage 7: Rhythm Analysis
         IJ.log("");
-        IJ.log("=== Stage 7: Cell Tracking ===");
+        IJ.log("=== Stage 7: Rhythm Analysis ===");
+        doRhythmAnalysis();
+
+        // Stage 8: Visualization
+        IJ.log("");
+        IJ.log("=== Stage 8: Visualization ===");
+        doVisualization();
+
+        // Stage 9: Cell Tracking (Optional)
+        IJ.log("");
+        IJ.log("=== Stage 9: Cell Tracking ===");
         doCellTracking();
 
-        // Stage 8: Completion
+        // Stage 10: Export
+        IJ.log("");
+        IJ.log("=== Stage 10: Export ===");
+        doExport();
+
+        // Stage 11: Completion
         long totalElapsed = System.currentTimeMillis() - totalStart;
         showCompletionDialog(totalElapsed);
 
@@ -1208,18 +1225,7 @@ public class GuidedPipeline {
             isolated.close();
         }
 
-        // Run visualization on the isolated traces
-        if (isolationApplied) {
-            IJ.log("  Running visualization on isolated traces...");
-            VisualizationAnalysis vizModule = new VisualizationAnalysis();
-            vizModule.setHeadless(false);
-            vizModule.setParallelThreads(1);
-            try {
-                vizModule.execute(directory);
-            } catch (Exception e) {
-                IJ.log("  Visualization error: " + e.getMessage());
-            }
-        }
+        // Visualization runs as its own stage (Stage 8) after isolation
     }
 
     // =========================================================================
@@ -1365,7 +1371,52 @@ public class GuidedPipeline {
     }
 
     // =========================================================================
-    // Stage 8: Completion
+    // Stage 7: Rhythm Analysis
+    // =========================================================================
+
+    private void doRhythmAnalysis() {
+        RhythmAnalysis rhythmModule = new RhythmAnalysis();
+        rhythmModule.setHeadless(false);
+        rhythmModule.setParallelThreads(1);
+        try {
+            rhythmModule.execute(directory);
+        } catch (Exception e) {
+            IJ.log("Rhythm analysis error: " + e.getMessage());
+        }
+    }
+
+    // =========================================================================
+    // Stage 8: Visualization
+    // =========================================================================
+
+    private void doVisualization() {
+        VisualizationAnalysis vizModule = new VisualizationAnalysis();
+        vizModule.setHeadless(false);
+        vizModule.setParallelThreads(1);
+        try {
+            vizModule.execute(directory);
+        } catch (Exception e) {
+            IJ.log("Visualization error: " + e.getMessage());
+        }
+    }
+
+    // =========================================================================
+    // Stage 10: Export
+    // =========================================================================
+
+    private void doExport() {
+        ExportAnalysis exportModule = new ExportAnalysis();
+        exportModule.setHeadless(false);
+        exportModule.setParallelThreads(1);
+        try {
+            exportModule.execute(directory);
+        } catch (Exception e) {
+            IJ.log("Export error: " + e.getMessage());
+        }
+    }
+
+    // =========================================================================
+    // Stage 11: Completion
     // =========================================================================
 
     private void showCompletionDialog(long totalElapsed) {
