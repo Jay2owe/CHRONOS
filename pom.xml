@@ -14,7 +14,7 @@
 
 	<groupId>io.github.jay2owe</groupId>
 	<artifactId>CHRONOS</artifactId>
-	<version>0.4.1</version>
+	<version>0.4.2</version>
 
 	<name>CHRONOS</name>
 	<description>Fiji plugin for circadian rhythm analysis of longitudinal SCN organotypic slice recordings — pre-processing, ROI-based signal extraction, cosinor fitting, wavelet analysis, and spatial mapping</description>

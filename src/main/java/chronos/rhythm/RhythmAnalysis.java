@@ -63,16 +63,28 @@ public class RhythmAnalysis implements Analysis {
             return false;
         }
 
-        // Find dF/F trace files
+        // Find trace files — dF/F traces first, then isolated and tracking traces
+        // Accepted prefixes: DeltaF_F_Traces_, Isolated_Traces_, Track_Speed_,
+        //   Track_Area_, Track_Circularity_, Track_Ramification_
+        final String[] TRACE_PREFIXES = {
+            "DeltaF_F_Traces_", "Isolated_Traces_",
+            "Track_Speed_", "Track_Area_",
+            "Track_Circularity_", "Track_Ramification_"
+        };
         String[] traceFiles = traceFolder.list(new FilenameFilter() {
             @Override
             public boolean accept(File d, String name) {
-                return name.startsWith("DeltaF_F_Traces_") && name.endsWith(".csv");
+                if (!name.endsWith(".csv")) return false;
+                for (String prefix : TRACE_PREFIXES) {
+                    if (name.startsWith(prefix)) return true;
+                }
+                return false;
             }
         });
 
         if (traceFiles == null || traceFiles.length == 0) {
-            IJ.error("Rhythm Analysis", "No dF/F trace files found in: " + tracesDir);
+            IJ.error("Rhythm Analysis", "No trace files found in: " + tracesDir
+                    + "\nExpected files starting with DeltaF_F_Traces_, Isolated_Traces_, or Track_*_");
             return false;
         }
 
@@ -109,15 +121,22 @@ public class RhythmAnalysis implements Analysis {
                 timesH[i] = i * frameIntervalHours;
             }
 
-            // Extract base name from filename
-            // e.g. "DeltaF_F_Traces_recording1.csv" -> "recording1"
+            // Extract base name by stripping known prefix and .csv suffix
             String baseName = filename;
-            if (baseName.startsWith("DeltaF_F_Traces_")) {
-                baseName = baseName.substring("DeltaF_F_Traces_".length());
+            for (String prefix : TRACE_PREFIXES) {
+                if (baseName.startsWith(prefix)) {
+                    baseName = baseName.substring(prefix.length());
+                    break;
+                }
             }
             if (baseName.endsWith(".csv")) {
                 baseName = baseName.substring(0, baseName.length() - 4);
             }
+            // Use prefix + baseName as output key to avoid collisions
+            // e.g. "DeltaF_F_Traces_VID22" or "Track_Speed_VID22"
+            String outputKey = filename.endsWith(".csv")
+                    ? filename.substring(0, filename.length() - 4)
+                    : filename;
 
             // Process each ROI
             List<RhythmResult> results = new ArrayList<RhythmResult>();
@@ -320,21 +339,21 @@ public class RhythmAnalysis implements Analysis {
                 }
 
                 // Save ridge data CSV
-                saveWaveletRidgeCsv(rhythmDir, baseName, waveletResults, roiNames,
+                saveWaveletRidgeCsv(rhythmDir, outputKey, waveletResults, roiNames,
                         timesH, config.frameIntervalMin);
             }
 
-            // --- Save outputs ---
-            saveRhythmSummary(rhythmDir, baseName, results);
-            saveCosinorFits(rhythmDir, baseName, timesH, cosinorFitsAll, roiNames,
+            // --- Save outputs (use outputKey to avoid collisions between trace types) ---
+            saveRhythmSummary(rhythmDir, outputKey, results);
+            saveCosinorFits(rhythmDir, outputKey, timesH, cosinorFitsAll, roiNames,
                     config.frameIntervalMin);
 
             if (fftPowerAll != null && fftFrequencies != null) {
-                saveFFTPeriodograms(rhythmDir, baseName, fftFrequencies, fftPowerAll, roiNames);
+                saveFFTPeriodograms(rhythmDir, outputKey, fftFrequencies, fftPowerAll, roiNames);
             }
 
             if (acfValuesAll != null && acfLags != null) {
-                saveAutocorrelation(rhythmDir, baseName, acfLags, acfValuesAll, roiNames);
+                saveAutocorrelation(rhythmDir, outputKey, acfLags, acfValuesAll, roiNames);
             }
 
             processed++;

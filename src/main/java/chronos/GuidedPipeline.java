@@ -291,6 +291,12 @@ public class GuidedPipeline {
             binMethodCombo.setEnabled(on);
         }});
 
+        dlg.addSpacer(4);
+        dlg.addHeader("Output LUT");
+        String[] lutOptions = {"None", "Green", "Fire", "Cyan Hot", "Grays", "Magenta", "Red", "Blue"};
+        dlg.addChoice("LUT", lutOptions, config.lutName);
+        dlg.addHelpText("Applied to corrected stacks before saving. Display only — does not modify pixel values.");
+
         if (!dlg.showDialog()) return false;
 
         // Read values
@@ -318,6 +324,7 @@ public class GuidedPipeline {
         config.binningEnabled = dlg.getNextBoolean();
         config.binFactor = Math.max(1, (int) dlg.getNextNumber());
         config.binMethod = dlg.getNextChoice();
+        config.lutName = dlg.getNextChoice();
 
         return true;
     }
@@ -705,6 +712,8 @@ public class GuidedPipeline {
 
                 IJ.log("");
                 IJ.log("[" + (fi + 1) + "/" + filesToProcess.size() + "] " + fileName);
+                IJ.showStatus("CHRONOS: Processing " + baseName + " (" + (fi + 1) + "/" + filesToProcess.size() + ")");
+                IJ.showProgress(fi, filesToProcess.size());
 
                 ImagePlus imp = IJ.openImage(processDir + fileName);
                 if (imp == null) {
@@ -945,6 +954,11 @@ public class GuidedPipeline {
                             + " (window=" + config.temporalFilterWindow + ")");
                     ImagePlus tf = TemporalFilter.movingAverage(imp, config.temporalFilterWindow);
                     if (tf != imp) { imp.close(); imp = tf; }
+                }
+
+                // Apply LUT if configured
+                if (!"None".equalsIgnoreCase(config.lutName)) {
+                    IJ.run(imp, config.lutName, "");
                 }
 
                 // Save projections for ROI definition reuse
