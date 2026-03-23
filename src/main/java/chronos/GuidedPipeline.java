@@ -88,6 +88,13 @@ public class GuidedPipeline {
         }
         SessionConfigIO.writeToDirectory(directory, config);
 
+        // Ensure all output directories exist
+        new File(circadianDir).mkdirs();
+        new File(correctedDir).mkdirs();
+        new File(assembledDir).mkdirs();
+        new File(tracesDir).mkdirs();
+        new File(vizDir).mkdirs();
+
         // Stage 1: Image Discovery
         String[] correctedFiles = listTifs(new File(correctedDir));
         String[] assembledFiles = listTifs(new File(assembledDir));
