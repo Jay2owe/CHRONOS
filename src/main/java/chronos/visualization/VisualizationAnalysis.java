@@ -440,9 +440,21 @@ public class VisualizationAnalysis implements Analysis {
      * Loads ROIs for a given recording.
      */
     private Roi[] loadRois(String roisDir, String baseName) {
+        // Try exact name
         String roiPath = roisDir + File.separator + baseName + "_rois.zip";
         if (new File(roiPath).exists()) {
             return RoiIO.loadRoisFromZip(roiPath);
+        }
+
+        // Strip _corrected and _stack suffixes and retry
+        String stripped = baseName;
+        if (stripped.endsWith("_corrected")) stripped = stripped.substring(0, stripped.length() - "_corrected".length());
+        if (stripped.endsWith("_stack")) stripped = stripped.substring(0, stripped.length() - "_stack".length());
+        if (!stripped.equals(baseName)) {
+            roiPath = roisDir + File.separator + stripped + "_rois.zip";
+            if (new File(roiPath).exists()) {
+                return RoiIO.loadRoisFromZip(roiPath);
+            }
         }
 
         // Try any ROI zip in the directory

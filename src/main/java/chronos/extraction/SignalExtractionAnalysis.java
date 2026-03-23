@@ -128,14 +128,22 @@ public class SignalExtractionAnalysis implements Analysis {
                 rois = RoiIO.loadRoisFromZip(roiPath);
             }
 
-            // Strip _corrected and retry
-            if (rois.length == 0 && baseName.endsWith("_corrected")) {
-                String strippedName = baseName.substring(0, baseName.length() - "_corrected".length());
-                roiPath = roiDir + File.separator + strippedName + "_rois.zip";
-                rois = RoiIO.loadRoisFromZip(roiPath);
-                if (rois.length == 0) {
-                    roiPath = roiDir + File.separator + strippedName + ".zip";
+            // Strip _corrected and/or _stack and retry
+            if (rois.length == 0) {
+                String strippedName = baseName;
+                if (strippedName.endsWith("_corrected")) {
+                    strippedName = strippedName.substring(0, strippedName.length() - "_corrected".length());
+                }
+                if (strippedName.endsWith("_stack")) {
+                    strippedName = strippedName.substring(0, strippedName.length() - "_stack".length());
+                }
+                if (!strippedName.equals(baseName)) {
+                    roiPath = roiDir + File.separator + strippedName + "_rois.zip";
                     rois = RoiIO.loadRoisFromZip(roiPath);
+                    if (rois.length == 0) {
+                        roiPath = roiDir + File.separator + strippedName + ".zip";
+                        rois = RoiIO.loadRoisFromZip(roiPath);
+                    }
                 }
             }
             if (rois.length == 0) {

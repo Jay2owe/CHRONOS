@@ -108,13 +108,12 @@ public class TrackingAnalysis implements Analysis {
                 continue;
             }
 
-            // Extract base name
+            // Extract base name — strip extension, _corrected, and _stack suffixes
             String baseName = filename;
-            if (baseName.endsWith("_corrected.tif")) {
-                baseName = baseName.substring(0, baseName.length() - "_corrected.tif".length());
-            } else if (baseName.endsWith(".tif") || baseName.endsWith(".tiff")) {
-                baseName = baseName.substring(0, baseName.lastIndexOf('.'));
-            }
+            if (baseName.endsWith(".tiff")) baseName = baseName.substring(0, baseName.length() - 5);
+            else if (baseName.endsWith(".tif")) baseName = baseName.substring(0, baseName.length() - 4);
+            if (baseName.endsWith("_corrected")) baseName = baseName.substring(0, baseName.length() - "_corrected".length());
+            if (baseName.endsWith("_stack")) baseName = baseName.substring(0, baseName.length() - "_stack".length());
 
             // Filter tracks by minimum duration
             List<CellTrack> longTracks = new ArrayList<CellTrack>();

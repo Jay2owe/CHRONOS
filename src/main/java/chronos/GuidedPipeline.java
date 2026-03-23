@@ -1132,6 +1132,7 @@ public class GuidedPipeline {
         String[] corrected = listTifs(new File(correctedDir));
         for (String f : corrected) {
             String baseName = stripSuffix(stripExtension(f), "_corrected");
+            baseName = stripSuffix(baseName, "_stack");
             ImagePlus imp = IJ.openImage(correctedDir + f);
             if (imp == null) continue;
 
@@ -1401,6 +1402,7 @@ public class GuidedPipeline {
         String[] corrected = listTifs(new File(correctedDir));
         for (String f : corrected) {
             String baseName = stripSuffix(stripExtension(f), "_corrected");
+            baseName = stripSuffix(baseName, "_stack");
             IJ.log("  Tracking: " + baseName);
 
             ImagePlus imp = IJ.openImage(correctedDir + f);
