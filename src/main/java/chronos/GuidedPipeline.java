@@ -305,20 +305,24 @@ public class GuidedPipeline {
         config.hideImageWindows = dlg.getNextBoolean();
 
         boolean bgEnabled = dlg.getNextBoolean();
-        config.backgroundMethod = bgEnabled ? dlg.getNextChoice() : "None";
+        String bgMethod = dlg.getNextChoice(); // always consume to keep index in sync
+        config.backgroundMethod = bgEnabled ? bgMethod : "None";
         config.backgroundRadius = dlg.getNextNumber();
 
         boolean bleachEnabled = dlg.getNextBoolean();
-        config.bleachMethod = bleachEnabled ? dlg.getNextChoice() : "None";
+        String bleachMethod = dlg.getNextChoice();
+        config.bleachMethod = bleachEnabled ? bleachMethod : "None";
         config.bleachPercentileWindow = Math.max(1, (int) dlg.getNextNumber());
         config.bleachPercentile = dlg.getNextNumber();
 
         boolean spatialEnabled = dlg.getNextBoolean();
-        config.spatialFilterType = spatialEnabled ? dlg.getNextChoice() : "None";
+        String spatType = dlg.getNextChoice();
+        config.spatialFilterType = spatialEnabled ? spatType : "None";
         config.spatialFilterRadius = dlg.getNextNumber();
 
         boolean temporalEnabled = dlg.getNextBoolean();
-        config.temporalFilterType = temporalEnabled ? dlg.getNextChoice() : "None";
+        String tempType = dlg.getNextChoice();
+        config.temporalFilterType = temporalEnabled ? tempType : "None";
         config.temporalFilterWindow = Math.max(1, (int) dlg.getNextNumber());
 
         config.binningEnabled = dlg.getNextBoolean();
@@ -1849,8 +1853,9 @@ public class GuidedPipeline {
             for (Map.Entry<String, Double> entry : map.entrySet()) {
                 pw.println(entry.getKey() + "=" + entry.getValue());
             }
-        } catch (IOException e) { /* ignore */ }
-        finally { if (pw != null) pw.close(); }
+        } catch (IOException e) {
+            IJ.log("  WARNING: Could not save " + header + ": " + e.getMessage());
+        } finally { if (pw != null) pw.close(); }
     }
 
     private static Map<String, Rectangle> loadCropRegions(String path) {
@@ -1892,8 +1897,9 @@ public class GuidedPipeline {
                 Rectangle r = entry.getValue();
                 pw.println(entry.getKey() + "=" + r.x + "," + r.y + "," + r.width + "," + r.height);
             }
-        } catch (IOException e) { /* ignore */ }
-        finally { if (pw != null) pw.close(); }
+        } catch (IOException e) {
+            IJ.log("  WARNING: Could not save crop regions: " + e.getMessage());
+        } finally { if (pw != null) pw.close(); }
     }
 
     private static void saveRegistrationTransforms(String path, RegistrationResult result) {
@@ -1910,8 +1916,9 @@ public class GuidedPipeline {
                         + IJ.d2s(result.shiftY[i], 4) + ","
                         + IJ.d2s(result.quality[i], 4));
             }
-        } catch (IOException e) { /* ignore */ }
-        finally { if (pw != null) pw.close(); }
+        } catch (IOException e) {
+            IJ.log("  WARNING: Could not save registration transforms: " + e.getMessage());
+        } finally { if (pw != null) pw.close(); }
     }
 
     private static String formatDuration(long millis) {

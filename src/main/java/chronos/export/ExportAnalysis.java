@@ -133,6 +133,18 @@ public class ExportAnalysis implements Analysis {
                             }
                         }
                     }
+                    if (name.startsWith("Isolated_Traces_") && name.endsWith(".csv")) {
+                        String isoBase = name.substring("Isolated_Traces_".length(),
+                                name.length() - ".csv".length());
+                        String[][] hdrOut = new String[1][];
+                        double[][] data = CsvReader.readTraces(tf.getAbsolutePath(), hdrOut);
+                        if (data != null) {
+                            deltafTraces.put("Isolated_" + isoBase, data);
+                            if (hdrOut[0] != null) {
+                                deltafHeaders.put("Isolated_" + isoBase, hdrOut[0]);
+                            }
+                        }
+                    }
                     if (includeRawTraces && name.startsWith("Raw_Traces_") && name.endsWith(".csv")) {
                         String baseName = name.substring("Raw_Traces_".length(),
                                 name.length() - ".csv".length());

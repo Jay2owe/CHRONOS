@@ -1218,20 +1218,24 @@ public class PreprocessingAnalysis implements Analysis {
         config.motionCorrectionCacheEnabled = dlg.getNextBoolean(); // Cache Enable
 
         boolean bgOn = dlg.getNextBoolean();               // BG Enable
-        config.backgroundMethod = bgOn ? dlg.getNextChoice() : "None"; // BG Method
+        String bgMethod = dlg.getNextChoice();             // BG Method (always consume)
+        config.backgroundMethod = bgOn ? bgMethod : "None";
         config.backgroundRadius = dlg.getNextNumber();     // BG Radius
 
         boolean bleachOn = dlg.getNextBoolean();           // Bleach Enable
-        config.bleachMethod = bleachOn ? dlg.getNextChoice() : "None"; // Bleach Method
+        String bleachMethod = dlg.getNextChoice();         // Bleach Method (always consume)
+        config.bleachMethod = bleachOn ? bleachMethod : "None";
         config.bleachPercentileWindow = Math.max(1, (int) dlg.getNextNumber());
         config.bleachPercentile = dlg.getNextNumber();
 
         boolean spatialOn = dlg.getNextBoolean();          // Spatial Enable
-        config.spatialFilterType = spatialOn ? dlg.getNextChoice() : "None";
+        String spatType = dlg.getNextChoice();             // Spatial Type (always consume)
+        config.spatialFilterType = spatialOn ? spatType : "None";
         config.spatialFilterRadius = dlg.getNextNumber();
 
         boolean temporalOn = dlg.getNextBoolean();         // Temporal Enable
-        config.temporalFilterType = temporalOn ? dlg.getNextChoice() : "None";
+        String tempType = dlg.getNextChoice();             // Temporal Type (always consume)
+        config.temporalFilterType = temporalOn ? tempType : "None";
         config.temporalFilterWindow = Math.max(1, (int) dlg.getNextNumber());
 
         config.preRoiFilter = dlg.getNextChoice();            // Pre-ROI Filter
