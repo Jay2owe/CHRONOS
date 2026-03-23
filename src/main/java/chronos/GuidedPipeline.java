@@ -689,7 +689,11 @@ public class GuidedPipeline {
                         approvalDlg.addChoice("Apply mode", applyModes, "Same method");
                     }
 
-                    approvalDlg.showDialog();
+                    if (!approvalDlg.showDialog()) {
+                        registered.hide();
+                        IJ.log("  Registration cancelled by user.");
+                        return false;
+                    }
                     registered.hide();
 
                     String action = approvalDlg.getNextChoice();
@@ -718,7 +722,8 @@ public class GuidedPipeline {
                         retryDlg.addHeader("Select Registration Method");
                         String[] mcMethods2 = {"Phase Correlation",
                                 "Phase Correlation + Epoch Detection", "Anchor-Patch Tracking",
-                                "Cross-Correlation", "SIFT", "Descriptor-Based"};
+                                "Cross-Correlation", "SIFT", "Descriptor-Based",
+                                "Correct 3D Drift", "Correct 3D Drift (Manual Landmarks)"};
                         retryDlg.addChoice("Method", mcMethods2, methodToUse);
                         if (!retryDlg.showDialog()) continue;
                         methodToUse = retryDlg.getNextChoice();
