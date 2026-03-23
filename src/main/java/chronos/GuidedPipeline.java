@@ -169,11 +169,14 @@ public class GuidedPipeline {
         dlg.addHeader("Experiment Setup");
         String[] reporterTypes = {"Fluorescent", "Bioluminescence", "Calcium"};
         dlg.addChoice("Reporter Type", reporterTypes, config.reporterType);
+        dlg.addHelpText("Determines bleach correction method. Fluorescent/Calcium: bi-exponential. Bioluminescence: sliding percentile.");
         dlg.addNumericField("Frame Interval (minutes)", config.frameIntervalMin, 1);
+        dlg.addHelpText("Time between frames. Auto-detected from Incucyte timestamps if available.");
 
         dlg.addSpacer(4);
         dlg.addHeader("Processing");
         dlg.addToggle("Hide image windows", config.hideImageWindows);
+        dlg.addHelpText("Keep image windows hidden during processing. Interactive steps (crop, ROI drawing) always show.");
 
         dlg.addSpacer(4);
         dlg.addHeader("Background Subtraction");
@@ -181,7 +184,9 @@ public class GuidedPipeline {
         dlg.addToggle("Enable", bgOn);
         String[] bgMethods = {"Rolling Ball", "Minimum Projection"};
         dlg.addChoice("Method", bgMethods, bgOn ? config.backgroundMethod : "Rolling Ball");
+        dlg.addHelpText("Rolling Ball: sliding paraboloid removes uneven illumination. Min Projection: subtracts the minimum across all frames.");
         dlg.addNumericField("Radius (pixels)", config.backgroundRadius, 0);
+        dlg.addHelpText("Rolling ball radius. Larger = preserves more structure. Typical: 50 for Incucyte.");
 
         dlg.addSpacer(4);
         dlg.addHeader("Bleach / Decay Correction");
@@ -190,8 +195,11 @@ public class GuidedPipeline {
         String[] bleachMethods = {"Mono-exponential", "Bi-exponential",
                 "Sliding Percentile", "Simple Ratio"};
         dlg.addChoice("Method", bleachMethods, bleachOn ? config.bleachMethod : "Bi-exponential");
+        dlg.addHelpText("Bi-exponential: best for fluorescent reporters (fast + slow decay). Sliding Percentile: best for bioluminescence (preserves waveform shape).");
         dlg.addNumericField("Percentile Window (frames)", config.bleachPercentileWindow, 0);
+        dlg.addHelpText("Window size for sliding percentile. Should span ~1 full circadian cycle.");
         dlg.addNumericField("Percentile (%)", config.bleachPercentile, 1);
+        dlg.addHelpText("Percentile level (typically 8%). Lower = more aggressive correction.");
 
         dlg.addSpacer(4);
         dlg.addHeader("Spatial Filter");
@@ -199,6 +207,7 @@ public class GuidedPipeline {
         dlg.addToggle("Enable", spatOn);
         String[] spatTypes = {"Gaussian", "Median"};
         dlg.addChoice("Type", spatTypes, spatOn ? config.spatialFilterType : "Gaussian");
+        dlg.addHelpText("Gaussian: smooths noise. Median: removes salt-and-pepper noise while preserving edges.");
         dlg.addNumericField("Sigma / Radius (pixels)", config.spatialFilterRadius, 1);
 
         dlg.addSpacer(4);
@@ -207,14 +216,17 @@ public class GuidedPipeline {
         dlg.addToggle("Enable", tempOn);
         String[] tempTypes = {"Moving Average", "Savitzky-Golay"};
         dlg.addChoice("Type", tempTypes, tempOn ? config.temporalFilterType : "Moving Average");
+        dlg.addHelpText("Smooths intensity fluctuations across frames. Moving Average is simple; Savitzky-Golay preserves peak shapes better.");
         dlg.addNumericField("Window (frames)", config.temporalFilterWindow, 0);
 
         dlg.addSpacer(4);
         dlg.addHeader("Frame Binning");
         dlg.addToggle("Enable", config.binningEnabled);
         dlg.addNumericField("Bin Factor", config.binFactor, 0);
+        dlg.addHelpText("Groups N consecutive frames into one (e.g., bin factor 3 = every 3 frames averaged). Reduces noise and file size.");
         String[] binMethods = {"Mean", "Sum"};
         dlg.addChoice("Method", binMethods, config.binMethod);
+        dlg.addHelpText("Mean: average intensity (preserves scale). Sum: total intensity (preserves photon count).");
 
         if (!dlg.showDialog()) return false;
 
