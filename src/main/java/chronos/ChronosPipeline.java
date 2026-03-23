@@ -60,11 +60,28 @@ public class ChronosPipeline implements PlugIn {
         IJ.log("  CHRONOS — Circadian Rhythm Analyzer");
         IJ.log("=============================================================");
 
+        // Parse command-line arguments for batch/headless mode
+        // Usage: run("CHRONOS", "dir=/path/to/experiment mode=guided")
+        //   or:  run("CHRONOS", "dir=/path mode=advanced modules=1,2,3,4,5")
+        Map<String, String> params = parseArgs(arg);
+        boolean batchMode = params.containsKey("dir");
+
         // 1. Choose experiment directory
-        String directory = IJ.getDirectory("Select experiment folder containing TIF files");
-        if (directory == null) {
-            IJ.log("CHRONOS: Cancelled — no directory selected.");
-            return;
+        String directory;
+        if (batchMode) {
+            directory = params.get("dir");
+            if (!directory.endsWith(File.separator)) directory += File.separator;
+            if (!new File(directory).exists()) {
+                IJ.error("CHRONOS", "Directory not found: " + directory);
+                return;
+            }
+            IJ.log("Batch mode: " + directory);
+        } else {
+            directory = IJ.getDirectory("Select experiment folder containing TIF files");
+            if (directory == null) {
+                IJ.log("CHRONOS: Cancelled — no directory selected.");
+                return;
+            }
         }
 
         // Guard: if user selected a subfolder inside .circadian/, walk up to experiment root
@@ -89,22 +106,33 @@ public class ChronosPipeline implements PlugIn {
         }
 
         // 1b. Mode selection: Guided vs Advanced
-        PipelineDialog modeDlg = new PipelineDialog("CHRONOS — Pipeline Mode");
-        modeDlg.addHeader("Choose Pipeline Mode");
-        modeDlg.addSpacer(4);
-        String[] modes = {"Guided Pipeline", "Advanced (Module-by-Module)"};
-        modeDlg.addChoice("Mode", modes, "Guided Pipeline");
-        modeDlg.addSpacer(4);
-        modeDlg.addHelpText("<b>Guided Pipeline</b> — walks you through the entire workflow step-by-step: image discovery, registration with interactive approval, ROI drawing, signal extraction, optional signal isolation, and cell tracking.");
-        modeDlg.addSpacer(2);
-        modeDlg.addHelpText("<b>Advanced</b> — select individual modules to run independently. Use this to re-run specific analysis steps without redoing the entire pipeline.");
+        String selectedMode;
+        if (batchMode) {
+            selectedMode = params.containsKey("mode") ? params.get("mode") : "advanced";
+            if ("guided".equalsIgnoreCase(selectedMode)) {
+                selectedMode = "Guided Pipeline";
+            } else {
+                selectedMode = "Advanced (Module-by-Module)";
+            }
+            IJ.log("Batch mode: " + selectedMode);
+        } else {
+            PipelineDialog modeDlg = new PipelineDialog("CHRONOS — Pipeline Mode");
+            modeDlg.addHeader("Choose Pipeline Mode");
+            modeDlg.addSpacer(4);
+            String[] modes = {"Guided Pipeline", "Advanced (Module-by-Module)"};
+            modeDlg.addChoice("Mode", modes, "Guided Pipeline");
+            modeDlg.addSpacer(4);
+            modeDlg.addHelpText("<b>Guided Pipeline</b> — walks you through the entire workflow step-by-step: image discovery, registration with interactive approval, ROI drawing, signal extraction, optional signal isolation, and cell tracking.");
+            modeDlg.addSpacer(2);
+            modeDlg.addHelpText("<b>Advanced</b> — select individual modules to run independently. Use this to re-run specific analysis steps without redoing the entire pipeline.");
 
-        if (!modeDlg.showDialog()) {
-            IJ.log("CHRONOS: Cancelled.");
-            return;
+            if (!modeDlg.showDialog()) {
+                IJ.log("CHRONOS: Cancelled.");
+                return;
+            }
+
+            selectedMode = modeDlg.getNextChoice();
         }
-
-        String selectedMode = modeDlg.getNextChoice();
 
         if ("Guided Pipeline".equals(selectedMode)) {
             // Create session directories
@@ -201,41 +229,69 @@ public class ChronosPipeline implements PlugIn {
             }
         }
 
-        // 4. Show main pipeline dialog with Settings button
-        final PipelineDialog dlg = new PipelineDialog("CHRONOS — Circadian Rhythm Analyzer");
-
-        dlg.addHeader("Pipeline Modules");
-        dlg.addHelpText("Select which modules to run. Modules execute in order.");
-        boolean[] defaultModuleStates = {true, true, true, true, true, true, false};
-        for (int i = 0; i < MODULE_NAMES.length; i++) {
-            dlg.addToggle((i + 1) + ". " + MODULE_NAMES[i], defaultModuleStates[i]);
-            dlg.addHelpText(MODULE_DESCRIPTIONS[i]);
-        }
-
-        // Settings button in footer — opens the global settings dialog
-        JButton settingsBtn = dlg.addFooterButton("Settings...");
-        settingsBtn.addActionListener(new ActionListener() {
-            @Override
-            public void actionPerformed(ActionEvent e) {
-                showSettingsDialog(config);
-            }
-        });
-
-        if (!dlg.showDialog()) {
-            IJ.log("CHRONOS: Cancelled by user.");
-            return;
-        }
-
-        // 5. Read module toggles
+        // 4. Select modules
         boolean[] moduleEnabled = new boolean[MODULE_NAMES.length];
-        for (int i = 0; i < MODULE_NAMES.length; i++) {
-            moduleEnabled[i] = dlg.getNextBoolean();
+
+        if (batchMode) {
+            // Parse "modules=1,2,3,4,5" or default to all
+            String modulesParam = params.get("modules");
+            if (modulesParam != null) {
+                for (String m : modulesParam.split(",")) {
+                    try {
+                        int idx = Integer.parseInt(m.trim()) - 1;
+                        if (idx >= 0 && idx < MODULE_NAMES.length) {
+                            moduleEnabled[idx] = true;
+                        }
+                    } catch (NumberFormatException ignored) {}
+                }
+            } else {
+                // Default: all modules except cell tracking
+                for (int i = 0; i < MODULE_NAMES.length - 1; i++) moduleEnabled[i] = true;
+            }
+            StringBuilder sel = new StringBuilder("  Modules: ");
+            for (int i = 0; i < MODULE_NAMES.length; i++) {
+                if (moduleEnabled[i]) sel.append((i + 1) + "=" + MODULE_NAMES[i] + " ");
+            }
+            IJ.log(sel.toString().trim());
+        } else {
+            final PipelineDialog dlg = new PipelineDialog("CHRONOS — Circadian Rhythm Analyzer");
+
+            dlg.addHeader("Pipeline Modules");
+            dlg.addHelpText("Select which modules to run. Modules execute in order.");
+            boolean[] defaultModuleStates = {true, true, true, true, true, true, false};
+            for (int i = 0; i < MODULE_NAMES.length; i++) {
+                dlg.addToggle((i + 1) + ". " + MODULE_NAMES[i], defaultModuleStates[i]);
+                dlg.addHelpText(MODULE_DESCRIPTIONS[i]);
+            }
+
+            // Settings button in footer — opens the global settings dialog
+            JButton settingsBtn = dlg.addFooterButton("Settings...");
+            settingsBtn.addActionListener(new ActionListener() {
+                @Override
+                public void actionPerformed(ActionEvent e) {
+                    showSettingsDialog(config);
+                }
+            });
+
+            if (!dlg.showDialog()) {
+                IJ.log("CHRONOS: Cancelled by user.");
+                return;
+            }
+
+            for (int i = 0; i < MODULE_NAMES.length; i++) {
+                moduleEnabled[i] = dlg.getNextBoolean();
+            }
         }
 
-        // 6. Create .circadian/ directory structure
+        // 6. In batch mode, force headless
+        if (batchMode) {
+            config.hideImageWindows = true;
+        }
+
+        // 7. Create .circadian/ directory structure
         createSessionDirectories(directory);
 
-        // 7. Save config
+        // 8. Save config
         SessionConfigIO.writeToDirectory(directory, config);
 
         // 8. Build analysis list
@@ -408,6 +464,24 @@ public class ChronosPipeline implements PlugIn {
             if (br != null) { try { br.close(); } catch (IOException ignored) {} }
         }
         return intervals;
+    }
+
+    /**
+     * Parse ImageJ-style argument string into a key-value map.
+     * Supports: "dir=/path mode=guided modules=1,2,3"
+     */
+    private static Map<String, String> parseArgs(String arg) {
+        Map<String, String> params = new LinkedHashMap<String, String>();
+        if (arg == null || arg.trim().isEmpty()) return params;
+        String[] tokens = arg.split("\\s+");
+        for (String token : tokens) {
+            int eq = token.indexOf('=');
+            if (eq > 0) {
+                params.put(token.substring(0, eq).trim().toLowerCase(),
+                        token.substring(eq + 1).trim());
+            }
+        }
+        return params;
     }
 
     private static String[] listTifs(File dir) {
