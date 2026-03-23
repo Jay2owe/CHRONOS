@@ -95,6 +95,7 @@ public class SessionConfig {
     public boolean runLombScargle = false;
     public boolean runWavelet = false;
     public boolean runJTKCycle = false;
+    public boolean runRAIN = false;
     /** "Standard" or "Damped" */
     public String cosinorModel = "Standard";
     public double significanceThreshold = 0.05;

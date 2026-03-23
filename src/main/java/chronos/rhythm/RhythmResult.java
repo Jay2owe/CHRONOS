@@ -31,6 +31,9 @@ public class RhythmResult {
     /** Optional: JTK_CYCLE result (may be null). */
     public JTKResult jtkResult;
 
+    /** Optional: RAIN result (may be null). */
+    public RAINResult rainResult;
+
     public RhythmResult(String roiName, double period, double phaseRad,
                         double phaseHours, double amplitude, double mesor,
                         double dampingTau, double rSquared, double pValue,

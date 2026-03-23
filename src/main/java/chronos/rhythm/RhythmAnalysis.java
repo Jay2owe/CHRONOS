@@ -207,6 +207,13 @@ public class RhythmAnalysis implements Analysis {
                             config.periodMinHours, config.periodMaxHours);
                 }
 
+                // --- RAIN (if enabled) ---
+                RAINResult rainResult = null;
+                if (config.runRAIN) {
+                    rainResult = RAINAnalyzer.analyze(detrended, frameIntervalHours,
+                            config.periodMinHours, config.periodMaxHours);
+                }
+
                 // Use cosinor period as final period if valid
                 double finalPeriod = cosinorResult.period;
                 if (Double.isNaN(finalPeriod) || finalPeriod <= 0) {
@@ -214,9 +221,12 @@ public class RhythmAnalysis implements Analysis {
                 }
 
                 // Determine if rhythmic based on significance
-                // If JTK is enabled, use combined evidence (either test significant)
+                // Any significant test (cosinor, JTK, RAIN) counts
                 boolean isRhythmic = cosinorResult.pValue < config.significanceThreshold;
                 if (jtkResult != null && jtkResult.pValue < config.significanceThreshold) {
+                    isRhythmic = true;
+                }
+                if (rainResult != null && rainResult.pValue < config.significanceThreshold) {
                     isRhythmic = true;
                 }
 
@@ -237,6 +247,7 @@ public class RhythmAnalysis implements Analysis {
                 rr.lsResult = lsResult;
                 rr.cosinorResult = cosinorResult;
                 rr.jtkResult = jtkResult;
+                rr.rainResult = rainResult;
 
                 results.add(rr);
 
@@ -356,6 +367,8 @@ public class RhythmAnalysis implements Analysis {
         dlg.addToggle("Lomb-Scargle", config.runLombScargle);
         dlg.addToggle("Wavelet (Stage 5)", config.runWavelet);
         dlg.addToggle("JTK_CYCLE (non-parametric)", config.runJTKCycle);
+        dlg.addToggle("RAIN (asymmetric waveforms)", config.runRAIN);
+        dlg.addHelpText("Detects rhythms with non-sinusoidal shapes (steep rise / slow decay) that JTK and cosinor miss.");
 
         dlg.addSpacer(8);
         dlg.addHeader("Cosinor Fitting");
@@ -380,6 +393,7 @@ public class RhythmAnalysis implements Analysis {
         config.runLombScargle = dlg.getNextBoolean();
         config.runWavelet = dlg.getNextBoolean();
         config.runJTKCycle = dlg.getNextBoolean();
+        config.runRAIN = dlg.getNextBoolean();
         config.cosinorModel = dlg.getNextChoice();
         config.significanceThreshold = dlg.getNextNumber();
         config.runCircaCompare = dlg.getNextBoolean();
@@ -400,7 +414,8 @@ public class RhythmAnalysis implements Analysis {
             pw = new PrintWriter(new BufferedWriter(new FileWriter(path)));
             pw.println("ROI,Period_h,Phase_rad,Phase_h,Amplitude,Mesor,Damping_tau," +
                     "R_squared,p_value,Is_Rhythmic," +
-                    "JTK_Period_h,JTK_Phase_h,JTK_Amplitude,JTK_p_value,JTK_tau");
+                    "JTK_Period_h,JTK_Phase_h,JTK_Amplitude,JTK_p_value,JTK_tau," +
+                    "RAIN_Period_h,RAIN_Peak_Phase_h,RAIN_Peak_Shape,RAIN_p_value");
 
             for (RhythmResult rr : results) {
                 StringBuilder sb = new StringBuilder();
@@ -423,6 +438,16 @@ public class RhythmAnalysis implements Analysis {
                     sb.append(fmt(rr.jtkResult.tau));
                 } else {
                     sb.append("NaN,NaN,NaN,NaN,NaN");
+                }
+
+                sb.append(",");
+                if (rr.rainResult != null) {
+                    sb.append(fmt(rr.rainResult.period)).append(",");
+                    sb.append(fmt(rr.rainResult.peakPhaseHours)).append(",");
+                    sb.append(fmt(rr.rainResult.peakShape)).append(",");
+                    sb.append(fmt(rr.rainResult.pValue));
+                } else {
+                    sb.append("NaN,NaN,NaN,NaN");
                 }
                 pw.println(sb.toString());
             }

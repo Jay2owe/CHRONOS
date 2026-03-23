@@ -111,6 +111,7 @@ public class SessionConfigIO {
         cfg.runLombScargle = getBool(props, "runLombScargle", cfg.runLombScargle);
         cfg.runWavelet = getBool(props, "runWavelet", cfg.runWavelet);
         cfg.runJTKCycle = getBool(props, "runJTKCycle", cfg.runJTKCycle);
+        cfg.runRAIN = getBool(props, "runRAIN", cfg.runRAIN);
         cfg.cosinorModel = getString(props, "cosinorModel", cfg.cosinorModel);
         cfg.significanceThreshold = getDouble(props, "significanceThreshold", cfg.significanceThreshold);
         cfg.runCircaCompare = getBool(props, "runCircaCompare", cfg.runCircaCompare);
@@ -234,6 +235,7 @@ public class SessionConfigIO {
             pw.println("runLombScargle=" + cfg.runLombScargle);
             pw.println("runWavelet=" + cfg.runWavelet);
             pw.println("runJTKCycle=" + cfg.runJTKCycle);
+            pw.println("runRAIN=" + cfg.runRAIN);
             pw.println("cosinorModel=" + cfg.cosinorModel);
             pw.println("significanceThreshold=" + cfg.significanceThreshold);
             pw.println("runCircaCompare=" + cfg.runCircaCompare);
