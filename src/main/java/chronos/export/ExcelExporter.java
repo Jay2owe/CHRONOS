@@ -275,7 +275,8 @@ public class ExcelExporter {
         // Header row
         String[] colNames = {
                 "File", "ROI", "Period", "Phase_h", "Amplitude", "Mesor",
-                "Damping_tau", "R_squared", "p_value", "Is_Rhythmic"
+                "Damping_tau", "R_squared", "p_value", "Is_Rhythmic",
+                "JTK_p_value", "RAIN_p_value", "RAIN_Peak_Shape"
         };
         Row hdr = sheet.createRow(rowIdx++);
         for (int c = 0; c < colNames.length; c++) {
@@ -299,6 +300,12 @@ public class ExcelExporter {
                 setCellNumber(row, 7, r.rSquared, numberStyle);
                 setCellNumber(row, 8, r.pValue, numberStyle);
                 row.createCell(9).setCellValue(r.isRhythmic ? "Yes" : "No");
+                setCellNumber(row, 10,
+                        r.jtkResult != null ? r.jtkResult.pValue : Double.NaN, numberStyle);
+                setCellNumber(row, 11,
+                        r.rainResult != null ? r.rainResult.pValue : Double.NaN, numberStyle);
+                setCellNumber(row, 12,
+                        r.rainResult != null ? r.rainResult.peakShape : Double.NaN, numberStyle);
             }
         }
 

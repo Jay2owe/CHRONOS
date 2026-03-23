@@ -500,9 +500,10 @@ public class ChronosPipeline implements PlugIn {
         long seconds = millis / 1000;
         long minutes = seconds / 60;
         seconds = seconds % 60;
-        if (minutes > 0) {
-            return minutes + "m " + seconds + "s";
-        }
+        long hours = minutes / 60;
+        minutes = minutes % 60;
+        if (hours > 0) return hours + "h " + minutes + "m " + seconds + "s";
+        if (minutes > 0) return minutes + "m " + seconds + "s";
         return seconds + "s";
     }
 }

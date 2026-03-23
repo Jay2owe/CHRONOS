@@ -329,6 +329,11 @@ public class ExportAnalysis implements Analysis {
             int iRSq = findCol(cols, "R_squared");
             int iPVal = findCol(cols, "p_value");
             int iRhythmic = findCol(cols, "Is_Rhythmic");
+            int iJtkP = findCol(cols, "JTK_p_value");
+            int iJtkPeriod = findCol(cols, "JTK_Period_h");
+            int iRainP = findCol(cols, "RAIN_p_value");
+            int iRainPeriod = findCol(cols, "RAIN_Period_h");
+            int iRainShape = findCol(cols, "RAIN_Peak_Shape");
 
             String line;
             while ((line = br.readLine()) != null) {
@@ -354,8 +359,25 @@ public class ExportAnalysis implements Analysis {
                             || "1".equals(val);
                 }
 
-                results.add(new RhythmResult(roiName, period, phaseRad, phaseH,
-                        amplitude, mesor, dampingTau, rSquared, pValue, isRhythmic));
+                RhythmResult rr = new RhythmResult(roiName, period, phaseRad, phaseH,
+                        amplitude, mesor, dampingTau, rSquared, pValue, isRhythmic);
+
+                // Populate JTK result if columns exist
+                double jtkPVal = getColDouble(parts, iJtkP);
+                if (!Double.isNaN(jtkPVal)) {
+                    double jtkPer = getColDouble(parts, iJtkPeriod);
+                    rr.jtkResult = new chronos.rhythm.JTKResult(jtkPer, Double.NaN, Double.NaN, jtkPVal, Double.NaN);
+                }
+
+                // Populate RAIN result if columns exist
+                double rainPVal = getColDouble(parts, iRainP);
+                if (!Double.isNaN(rainPVal)) {
+                    double rainPer = getColDouble(parts, iRainPeriod);
+                    double rainShape = getColDouble(parts, iRainShape);
+                    rr.rainResult = new chronos.rhythm.RAINResult(rainPer, Double.NaN, rainShape, rainPVal, Double.NaN);
+                }
+
+                results.add(rr);
             }
         } catch (IOException e) {
             IJ.log("Warning: Could not read rhythm summary: " + e.getMessage());
