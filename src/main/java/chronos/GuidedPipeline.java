@@ -744,15 +744,17 @@ public class GuidedPipeline {
                 }
 
                 // Apply registration
+                // Plugin-based methods (SIFT, Cross-Correlation, Descriptor-Based, Correct 3D Drift)
+                // already apply corrections in-place — only non-plugin methods need applyRegistration
                 ImagePlus registered;
-                if (regResult != null && !"SIFT".equalsIgnoreCase(methodToUse)
-                        && !"Cross-Correlation".equalsIgnoreCase(methodToUse)
-                        && !"Descriptor-Based".equalsIgnoreCase(methodToUse)) {
+                boolean pluginBased = "SIFT".equalsIgnoreCase(methodToUse)
+                        || "Cross-Correlation".equalsIgnoreCase(methodToUse)
+                        || "Descriptor-Based".equalsIgnoreCase(methodToUse)
+                        || "Correct 3D Drift".equalsIgnoreCase(methodToUse)
+                        || "Correct 3D Drift (Manual Landmarks)".equalsIgnoreCase(methodToUse);
+                if (regResult != null && !pluginBased) {
                     registered = MotionCorrector.applyRegistration(imp, regResult);
                     if (registered != imp) { imp.close(); imp = registered; }
-                } else if (regResult != null) {
-                    // Plugin-based methods already applied the correction to imp
-                    registered = imp;
                 } else {
                     registered = imp;
                 }
@@ -837,9 +839,12 @@ public class GuidedPipeline {
                         }
 
                         regResult = computeRegistration(imp, methodToUse, driftResult);
-                        if (regResult != null && !"SIFT".equalsIgnoreCase(methodToUse)
-                                && !"Cross-Correlation".equalsIgnoreCase(methodToUse)
-                                && !"Descriptor-Based".equalsIgnoreCase(methodToUse)) {
+                        boolean retryPluginBased = "SIFT".equalsIgnoreCase(methodToUse)
+                                || "Cross-Correlation".equalsIgnoreCase(methodToUse)
+                                || "Descriptor-Based".equalsIgnoreCase(methodToUse)
+                                || "Correct 3D Drift".equalsIgnoreCase(methodToUse)
+                                || "Correct 3D Drift (Manual Landmarks)".equalsIgnoreCase(methodToUse);
+                        if (regResult != null && !retryPluginBased) {
                             registered = MotionCorrector.applyRegistration(imp, regResult);
                             if (registered != imp) { imp.close(); imp = registered; }
                         } else {
@@ -886,6 +891,8 @@ public class GuidedPipeline {
 
                 // Background subtraction
                 if (!"None".equalsIgnoreCase(config.backgroundMethod)) {
+                    IJ.log("  Background subtraction: " + config.backgroundMethod
+                            + " (r=" + (int) config.backgroundRadius + ")");
                     if ("Rolling Ball".equalsIgnoreCase(config.backgroundMethod)) {
                         ImagePlus bg = BackgroundCorrector.rollingBall(imp, config.backgroundRadius);
                         if (bg != imp) { imp.close(); imp = bg; }
@@ -897,6 +904,7 @@ public class GuidedPipeline {
 
                 // Bleach correction
                 if (!"None".equalsIgnoreCase(config.bleachMethod)) {
+                    IJ.log("  Bleach correction: " + config.bleachMethod);
                     double[] meanTrace = BleachCorrector.extractMeanTrace(imp);
                     double[] factors = null;
                     if ("Mono-exponential".equalsIgnoreCase(config.bleachMethod)) {
@@ -920,6 +928,8 @@ public class GuidedPipeline {
 
                 // Spatial filter
                 if (!"None".equalsIgnoreCase(config.spatialFilterType)) {
+                    IJ.log("  Spatial filter: " + config.spatialFilterType
+                            + " (r=" + IJ.d2s(config.spatialFilterRadius, 1) + ")");
                     if ("Gaussian".equalsIgnoreCase(config.spatialFilterType)) {
                         ImagePlus sf = SpatialFilter.gaussian(imp, config.spatialFilterRadius);
                         if (sf != imp) { imp.close(); imp = sf; }
@@ -931,9 +941,24 @@ public class GuidedPipeline {
 
                 // Temporal filter
                 if (!"None".equalsIgnoreCase(config.temporalFilterType)) {
+                    IJ.log("  Temporal filter: " + config.temporalFilterType
+                            + " (window=" + config.temporalFilterWindow + ")");
                     ImagePlus tf = TemporalFilter.movingAverage(imp, config.temporalFilterWindow);
                     if (tf != imp) { imp.close(); imp = tf; }
                 }
+
+                // Save projections for ROI definition reuse
+                String projDir = circadianDir + "projections" + File.separator;
+                new File(projDir).mkdirs();
+                ImagePlus meanProj = computeMeanProjection(imp);
+                new FileSaver(meanProj).saveAsTiff(projDir + baseName + "_mean.tif");
+                meanProj.close();
+                ZProjector maxZp = new ZProjector(imp);
+                maxZp.setMethod(ZProjector.MAX_METHOD);
+                maxZp.doProjection();
+                ImagePlus maxProj = maxZp.getProjection();
+                new FileSaver(maxProj).saveAsTiff(projDir + baseName + "_max.tif");
+                maxProj.close();
 
                 // Save corrected stack
                 String outputPath = correctedDir + baseName + "_corrected.tif";
@@ -1131,21 +1156,35 @@ public class GuidedPipeline {
         dlg.addHeader("Signal Isolation (Optional)");
         dlg.addMessage("Apply an ImageJ macro to isolate specific signal?");
         dlg.addHelpText("Select a preset or choose Custom to enter your own macro.");
-        dlg.addToggle("Enable signal isolation", false);
+        ToggleSwitch isoToggle = dlg.addToggle("Enable signal isolation", false);
         dlg.addSpacer(4);
-        dlg.addChoice("Filter preset", NamedFilterLoader.FILTER_NAMES,
+        final JComboBox<String> presetCombo = dlg.addChoice("Filter preset", NamedFilterLoader.FILTER_NAMES,
                 NamedFilterLoader.FILTER_NAMES[0]);
         dlg.addHelpText("Commands run on each corrected stack. The active image after execution is used for extraction.");
         dlg.addSpacer(4);
         dlg.addMessage("Custom macro (only used when preset is 'Custom'):");
-        dlg.addStringField("Macro", "", 40);
+        final JTextField macroField = dlg.addStringField("Macro", "", 40);
+        presetCombo.setEnabled(false);
+        macroField.setEnabled(false);
+        isoToggle.addChangeListener(new Runnable() { public void run() {
+            boolean on = isoToggle.isSelected();
+            presetCombo.setEnabled(on);
+            macroField.setEnabled(on);
+        }});
 
         dlg.addSpacer(8);
         dlg.addHeader("Video Export");
-        dlg.addToggle("Save as AVI video", false);
+        ToggleSwitch aviToggle = dlg.addToggle("Save as AVI video", false);
         String[] lutOptions = {"None", "Green", "Fire", "Cyan Hot", "Grays", "Magenta", "Red", "Blue"};
-        dlg.addChoice("LUT", lutOptions, "None");
-        dlg.addNumericField("Frames per second", 7, 0);
+        final JComboBox<String> lutCombo = dlg.addChoice("LUT", lutOptions, "None");
+        final JTextField fpsField = dlg.addNumericField("Frames per second", 7, 0);
+        lutCombo.setEnabled(false);
+        fpsField.setEnabled(false);
+        aviToggle.addChangeListener(new Runnable() { public void run() {
+            boolean on = aviToggle.isSelected();
+            lutCombo.setEnabled(on);
+            fpsField.setEnabled(on);
+        }});
 
         if (!dlg.showDialog()) return;
 
