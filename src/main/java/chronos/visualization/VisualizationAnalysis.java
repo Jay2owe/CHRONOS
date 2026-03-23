@@ -63,15 +63,24 @@ public class VisualizationAnalysis implements Analysis {
             return false;
         }
 
+        final String[] TRACE_PREFIXES = {
+            "DeltaF_F_Traces_", "Isolated_Traces_",
+            "Track_Speed_", "Track_Area_",
+            "Track_Circularity_", "Track_Ramification_"
+        };
         String[] traceFiles = traceFolder.list(new FilenameFilter() {
             @Override
             public boolean accept(File d, String name) {
-                return name.startsWith("DeltaF_F_Traces_") && name.endsWith(".csv");
+                if (!name.endsWith(".csv")) return false;
+                for (String prefix : TRACE_PREFIXES) {
+                    if (name.startsWith(prefix)) return true;
+                }
+                return false;
             }
         });
 
         if (traceFiles == null || traceFiles.length == 0) {
-            IJ.error("Visualization", "No dF/F trace files found in: " + tracesDir);
+            IJ.error("Visualization", "No trace files found in: " + tracesDir);
             return false;
         }
 
@@ -85,14 +94,21 @@ public class VisualizationAnalysis implements Analysis {
             IJ.log("[" + (fi + 1) + "/" + traceFiles.length + "] " + filename);
             IJ.showProgress(fi, traceFiles.length);
 
-            // Extract base name
+            // Extract base name by stripping known prefix
             String baseName = filename;
-            if (baseName.startsWith("DeltaF_F_Traces_")) {
-                baseName = baseName.substring("DeltaF_F_Traces_".length());
+            for (String prefix : TRACE_PREFIXES) {
+                if (baseName.startsWith(prefix)) {
+                    baseName = baseName.substring(prefix.length());
+                    break;
+                }
             }
             if (baseName.endsWith(".csv")) {
                 baseName = baseName.substring(0, baseName.length() - 4);
             }
+            // Use full filename (minus .csv) as output key to avoid collisions
+            String outputKey = filename.endsWith(".csv")
+                    ? filename.substring(0, filename.length() - 4)
+                    : filename;
 
             // Load dF/F traces
             String tracePath = tracesDir + File.separator + filename;
@@ -112,13 +128,19 @@ public class VisualizationAnalysis implements Analysis {
                 timesH[i] = i * frameIntervalHours;
             }
 
-            // Load rhythm results
-            List<RhythmResult> rhythmResults = loadRhythmSummary(rhythmDir, baseName);
+            // Load rhythm results (try outputKey first, then baseName for backward compat)
+            List<RhythmResult> rhythmResults = loadRhythmSummary(rhythmDir, outputKey);
+            if (rhythmResults.isEmpty()) {
+                rhythmResults = loadRhythmSummary(rhythmDir, baseName);
+            }
             boolean hasRhythmResults = !rhythmResults.isEmpty();
 
             // Load cosinor fits
             double[][] cosinorFits = null;
-            String fitsPath = rhythmDir + File.separator + "Cosinor_Fits_" + baseName + ".csv";
+            String fitsPath = rhythmDir + File.separator + "Cosinor_Fits_" + outputKey + ".csv";
+            if (!new File(fitsPath).exists()) {
+                fitsPath = rhythmDir + File.separator + "Cosinor_Fits_" + baseName + ".csv";
+            }
             if (new File(fitsPath).exists()) {
                 String[][] fitsHeaderHolder = new String[1][];
                 cosinorFits = CsvReader.readTraces(fitsPath, fitsHeaderHolder);
@@ -164,7 +186,7 @@ public class VisualizationAnalysis implements Analysis {
                 ImagePlus tsPlot = TimeSeriesPlotter.plotAll(timesH, traces, cosinorFits,
                         roiNames, cosinorResults);
                 if (tsPlot != null) {
-                    saveImage(tsPlot, vizDir, "TimeSeries_" + baseName + ".png");
+                    saveImage(tsPlot, vizDir, "TimeSeries_" + outputKey + ".png");
                 }
             }
 
@@ -174,7 +196,7 @@ public class VisualizationAnalysis implements Analysis {
                 ImagePlus kymo = KymographGenerator.generateFromTraces(traces, roiNames,
                         config.frameIntervalMin);
                 if (kymo != null) {
-                    saveImage(kymo, vizDir, "Kymograph_" + baseName + ".tif");
+                    saveImage(kymo, vizDir, "Kymograph_" + outputKey + ".tif");
                 }
             }
 
@@ -210,7 +232,7 @@ public class VisualizationAnalysis implements Analysis {
                 ImagePlus raster = RasterPlotGenerator.generate(traces, phases, roiNames,
                         config.frameIntervalMin);
                 if (raster != null) {
-                    saveImage(raster, vizDir, "RasterPlot_" + baseName + ".tif");
+                    saveImage(raster, vizDir, "RasterPlot_" + outputKey + ".tif");
                 }
             }
 
@@ -228,7 +250,7 @@ public class VisualizationAnalysis implements Analysis {
                     for (int i = 0; i < allPhases.size(); i++) pArr[i] = allPhases.get(i);
                     ImagePlus polar = PolarPlotGenerator.generate(pArr, rayleigh, 500);
                     if (polar != null) {
-                        saveImage(polar, vizDir, "PolarPlot_" + baseName + ".png");
+                        saveImage(polar, vizDir, "PolarPlot_" + outputKey + ".png");
                     }
                 }
             }
@@ -236,7 +258,7 @@ public class VisualizationAnalysis implements Analysis {
             // 8. Wavelet Scalograms
             if (config.vizScalogram) {
                 IJ.log("  Generating scalograms...");
-                generateScalograms(rhythmDir, vizDir, baseName, roiNames, timesH,
+                generateScalograms(rhythmDir, vizDir, outputKey, roiNames, timesH,
                         frameIntervalHours, config);
             }
 
@@ -270,7 +292,7 @@ public class VisualizationAnalysis implements Analysis {
                 ImagePlus dashboard = SummaryDashboard.generate(timesH, traces,
                         rhythmResults, rayleigh);
                 if (dashboard != null) {
-                    saveImage(dashboard, vizDir, "Dashboard_" + baseName + ".png");
+                    saveImage(dashboard, vizDir, "Dashboard_" + outputKey + ".png");
                 }
             }
 
