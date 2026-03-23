@@ -155,6 +155,76 @@ public class MotilityMetrics {
     }
 
     /**
+     * Generates per-frame circularity time-series.
+     * Circularity = 4 * pi * area / perimeter^2. 1.0 = perfect circle, lower = more complex shape.
+     * Can detect circadian changes in microglia morphology (amoeboid vs ramified).
+     *
+     * @param track   the cell track
+     * @param nFrames total number of frames
+     * @return circularity array (NaN where not detected)
+     */
+    public static double[] circularityTimeSeries(CellTrack track, int nFrames) {
+        double[] series = new double[nFrames];
+        Arrays.fill(series, Double.NaN);
+
+        for (int i = 0; i < track.length(); i++) {
+            int f = track.frames[i];
+            if (f < nFrames && track.perimeter[i] > 0) {
+                series[f] = 4.0 * Math.PI * track.area[i]
+                        / (track.perimeter[i] * track.perimeter[i]);
+            }
+        }
+        return series;
+    }
+
+    /**
+     * Generates per-frame ramification index time-series.
+     * Ramification index = perimeter / circumference of equal-area circle.
+     * 1.0 = amoeboid (circular), &gt;3 = ramified (complex branching).
+     * Microglia are ramified during sleep, amoeboid during wake.
+     *
+     * @param track   the cell track
+     * @param nFrames total number of frames
+     * @return ramification index array (NaN where not detected)
+     */
+    public static double[] ramificationTimeSeries(CellTrack track, int nFrames) {
+        double[] series = new double[nFrames];
+        Arrays.fill(series, Double.NaN);
+
+        for (int i = 0; i < track.length(); i++) {
+            int f = track.frames[i];
+            if (f < nFrames && track.area[i] > 0) {
+                // Circumference of a circle with the same area
+                double circleCircumference = 2.0 * Math.PI * Math.sqrt(track.area[i] / Math.PI);
+                if (circleCircumference > 0) {
+                    series[f] = track.perimeter[i] / circleCircumference;
+                }
+            }
+        }
+        return series;
+    }
+
+    /**
+     * Generates per-frame perimeter time-series.
+     *
+     * @param track   the cell track
+     * @param nFrames total number of frames
+     * @return perimeter array (NaN where not detected)
+     */
+    public static double[] perimeterTimeSeries(CellTrack track, int nFrames) {
+        double[] series = new double[nFrames];
+        Arrays.fill(series, Double.NaN);
+
+        for (int i = 0; i < track.length(); i++) {
+            int f = track.frames[i];
+            if (f < nFrames) {
+                series[f] = track.perimeter[i];
+            }
+        }
+        return series;
+    }
+
+    /**
      * Generates per-frame displacement-from-origin time-series.
      * Distance from the cell's initial position at each frame.
      *

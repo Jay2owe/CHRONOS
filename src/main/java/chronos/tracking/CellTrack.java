@@ -21,12 +21,29 @@ public class CellTrack {
     /** Cell area (pixels^2) at each detected frame. */
     public final double[] area;
 
+    /** Cell perimeter (pixels) at each detected frame. */
+    public final double[] perimeter;
+
     public CellTrack(int trackID, int[] frames, double[] x, double[] y, double[] area) {
+        this(trackID, frames, x, y, area, null);
+    }
+
+    public CellTrack(int trackID, int[] frames, double[] x, double[] y,
+                     double[] area, double[] perimeter) {
         this.trackID = trackID;
         this.frames = frames;
         this.x = x;
         this.y = y;
         this.area = area;
+        // If no perimeter provided, estimate from area assuming circular shape
+        if (perimeter != null) {
+            this.perimeter = perimeter;
+        } else {
+            this.perimeter = new double[area.length];
+            for (int i = 0; i < area.length; i++) {
+                this.perimeter[i] = 2.0 * Math.PI * Math.sqrt(area[i] / Math.PI);
+            }
+        }
     }
 
     /** Number of frames this cell was tracked. */

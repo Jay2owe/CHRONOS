@@ -1406,6 +1406,10 @@ public class GuidedPipeline {
                 // Save comprehensive per-object-per-frame CSV
                 saveDetailedTracks(baseName, longTracks, imp, config.frameIntervalMin);
 
+                // Save morphology time-series CSVs for rhythm analysis
+                saveMorphologyTimeSeries(baseName, longTracks,
+                        result.nFrames, config.frameIntervalMin);
+
             } catch (Exception e) {
                 IJ.log("    Tracking failed: " + e.getMessage());
             }
@@ -1482,6 +1486,64 @@ public class GuidedPipeline {
             if (pw != null) pw.close();
         }
         IJ.log("    Saved: " + baseName + "_tracks.csv");
+    }
+
+    /**
+     * Saves per-cell morphology time-series CSVs that can be fed into rhythm analysis.
+     * Outputs: speed, area, circularity, ramification index — one CSV each.
+     */
+    private void saveMorphologyTimeSeries(String baseName, List<CellTrack> tracks,
+                                           int nFrames, double frameIntervalMin) {
+        if (tracks.isEmpty()) return;
+
+        String[] metricNames = {"Speed", "Area", "Circularity", "Ramification"};
+        for (String metric : metricNames) {
+            String path = tracesDir + "Track_" + metric + "_" + baseName + ".csv";
+            PrintWriter pw = null;
+            try {
+                pw = new PrintWriter(new BufferedWriter(new FileWriter(path)));
+
+                // Header
+                StringBuilder hdr = new StringBuilder("Frame,Time_hours");
+                for (CellTrack t : tracks) {
+                    hdr.append(",Cell_").append(t.trackID);
+                }
+                pw.println(hdr.toString());
+
+                // Compute all time-series
+                double[][] allSeries = new double[tracks.size()][];
+                for (int c = 0; c < tracks.size(); c++) {
+                    CellTrack t = tracks.get(c);
+                    if ("Speed".equals(metric)) {
+                        allSeries[c] = MotilityMetrics.speedTimeSeries(t, nFrames);
+                    } else if ("Area".equals(metric)) {
+                        allSeries[c] = MotilityMetrics.areaTimeSeries(t, nFrames);
+                    } else if ("Circularity".equals(metric)) {
+                        allSeries[c] = MotilityMetrics.circularityTimeSeries(t, nFrames);
+                    } else {
+                        allSeries[c] = MotilityMetrics.ramificationTimeSeries(t, nFrames);
+                    }
+                }
+
+                // Write rows
+                for (int f = 0; f < nFrames; f++) {
+                    double timeH = f * frameIntervalMin / 60.0;
+                    StringBuilder row = new StringBuilder();
+                    row.append(f).append(",").append(IJ.d2s(timeH, 4));
+                    for (int c = 0; c < tracks.size(); c++) {
+                        row.append(",");
+                        double val = allSeries[c][f];
+                        row.append(Double.isNaN(val) ? "NaN" : IJ.d2s(val, 6));
+                    }
+                    pw.println(row.toString());
+                }
+            } catch (IOException e) {
+                IJ.log("    Error saving " + metric + " time-series: " + e.getMessage());
+            } finally {
+                if (pw != null) pw.close();
+            }
+        }
+        IJ.log("    Saved morphology time-series (Speed, Area, Circularity, Ramification)");
     }
 
     // =========================================================================
