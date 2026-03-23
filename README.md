@@ -16,8 +16,11 @@ A Fiji/ImageJ plugin for automated analysis of circadian rhythms from longitudin
 - **Rhythm analysis**: FFT, autocorrelation, Lomb-Scargle, cosinor fitting (standard/damped), wavelet CWT, JTK_CYCLE, CircaCompare, Rayleigh test
 - **Detrending**: Linear/quadratic/cubic polynomial, Sinc filter (FFT bandpass), EMD, LOESS
 - **Pre-ROI filter presets**: Dropdown with bundled filter macros (e.g., "Extract Green (Incucyte GFP)" — HSB saturation + double paraboloid + median)
-- **Output LUT**: Apply a lookup table (Green, Fire, Cyan Hot, etc.) to corrected stacks before saving
-- **Signal isolation**: Apply custom ImageJ macro (e.g., HSB channel split) for secondary signal extraction
+- **Output LUT**: Apply a lookup table (Green, Fire, Cyan Hot, etc.) to corrected stacks before saving (automatically skipped for RGB images)
+- **Registration checks**: Plugin-dependent registration methods (SIFT, Correct 3D Drift, Descriptor-Based) are checked at runtime — unavailable methods show a clear warning
+- **Consolidated traces**: Per-series combined CSVs with all trace types (Raw, dF/F, Isolated, Z-score) side by side
+- **ROI overlay**: Sanity check PNG showing color-coded ROI outlines on mean projection
+- **Signal isolation**: Apply custom ImageJ macro (e.g., HSB channel split) for secondary signal extraction, with optional interactive signal threshold (preview per image, apply uniformly)
 - **Cell tracking**: TrackMate + StarDist AI detection with per-object-per-frame CSV (TrackID, centroid, mean/total intensity, area, perimeter)
 - **Visualization**: Time-series plots, kymographs, spatial maps (phase/period/amplitude), polar plots, scalograms, drift trace plots, summary dashboard
 - **Export**: Excel workbook with all results, consolidated CSVs
@@ -32,8 +35,9 @@ Walks through the entire workflow in one session:
 4. Registration (drift analysis → method recommendation → interactive approval)
 5. ROI definition (interactive drawing on projections)
 6. Signal extraction (per-ROI traces + optional whole-image trace)
-7. Signal isolation (optional user macro for secondary extraction)
-8. Cell tracking (optional TrackMate + StarDist)
+7. Signal isolation (optional user macro for secondary extraction + signal threshold)
+8. Trace consolidation (combined per-series CSVs)
+9. Cell tracking (optional TrackMate + StarDist)
 
 ### Advanced (Module-by-Module)
 Select individual modules to run independently — useful for re-running specific analysis steps.
@@ -49,7 +53,7 @@ Select individual modules to run independently — useful for re-running specifi
 ## Installation
 
 1. Build: `bash mvnw clean package -Denforcer.skip=true`
-2. Copy `target/CHRONOS-0.1.0-SNAPSHOT.jar` to your Fiji `plugins/` folder
+2. Copy `target/CHRONOS-0.5.0.jar` to your Fiji `plugins/` folder
 3. Restart Fiji
 4. Run: **Plugins > CHRONOS > CHRONOS - Circadian Rhythm Analyzer**
 
@@ -82,9 +86,9 @@ experiment_folder/
       registration_transforms_*.csv  (cached registration shifts)
       drift_analysis_*.csv           (drift pattern classification)
       drift_trace_*.csv              (per-frame shift trace)
-    projections/                     (mean/max projections)
+    projections/                     (mean/max projections + ROI overlay PNGs)
     ROIs/                            (ROI ZIP files)
-    traces/                          (raw, dF/F, Z-score, isolated CSVs)
+    traces/                          (consolidated + individual trace CSVs)
     rhythm/                          (FFT, autocorrelation, cosinor, wavelet results)
     visualizations/                  (plots, maps, drift traces, dashboard)
     exports/                         (Excel workbook, consolidated CSVs)

@@ -92,6 +92,9 @@ public class SessionConfigIO {
         cfg.temporalFilterType = getString(props, "temporalFilterType", cfg.temporalFilterType);
         cfg.temporalFilterWindow = getInt(props, "temporalFilterWindow", cfg.temporalFilterWindow);
 
+        // Signal Threshold
+        cfg.signalThreshold = getDouble(props, "signalThreshold", cfg.signalThreshold);
+
         // Signal Extraction
         cfg.f0Method = getString(props, "f0Method", cfg.f0Method);
         cfg.f0WindowSize = getInt(props, "f0WindowSize", cfg.f0WindowSize);
@@ -214,6 +217,10 @@ public class SessionConfigIO {
             pw.println("# Temporal Filter");
             pw.println("temporalFilterType=" + cfg.temporalFilterType);
             pw.println("temporalFilterWindow=" + cfg.temporalFilterWindow);
+            pw.println();
+
+            pw.println("# Signal Threshold");
+            pw.println("signalThreshold=" + cfg.signalThreshold);
             pw.println();
 
             pw.println("# Signal Extraction");

@@ -74,6 +74,78 @@ public class CsvWriter {
     }
 
     /**
+     * Writes a consolidated CSV with multiple trace types side by side.
+     * <p>
+     * For ROI traces: Frame, Time_min, ROI1_Raw, ROI1_DeltaFF, ROI1_Isolated, ROI2_Raw, ...
+     * For whole-image traces: Frame, Time_min, Raw, DeltaFF, Isolated, Zscore
+     *
+     * @param path             output file path
+     * @param roiNames         ROI names (null for whole-image mode)
+     * @param traceTypes       array of trace type names (e.g., "Raw", "DeltaFF", "Isolated")
+     * @param traceData        array of trace data arrays [typeIndex][roiIndex][frameIndex],
+     *                         entries may be null if that trace type wasn't computed
+     * @param nFrames          number of frames
+     * @param frameIntervalMin frame interval in minutes
+     */
+    public static void writeConsolidatedTraces(String path, String[] roiNames,
+                                               String[] traceTypes, double[][][] traceData,
+                                               int nFrames, double frameIntervalMin) {
+        File parent = new File(path).getParentFile();
+        if (parent != null && !parent.exists()) parent.mkdirs();
+
+        // Count available trace types
+        int availableTypes = 0;
+        for (double[][] td : traceData) {
+            if (td != null) availableTypes++;
+        }
+        if (availableTypes == 0) return;
+
+        int nRois = (roiNames != null) ? roiNames.length : 1;
+
+        PrintWriter pw = null;
+        try {
+            pw = new PrintWriter(new BufferedWriter(new FileWriter(path)));
+
+            // Build header
+            StringBuilder sb = new StringBuilder("Frame,Time_min");
+            for (int r = 0; r < nRois; r++) {
+                String roiPrefix = (roiNames != null) ? roiNames[r] + "_" : "";
+                for (int t = 0; t < traceTypes.length; t++) {
+                    if (traceData[t] != null) {
+                        sb.append(",").append(roiPrefix).append(traceTypes[t]);
+                    }
+                }
+            }
+            pw.println(sb.toString());
+
+            // Write data rows
+            for (int f = 0; f < nFrames; f++) {
+                sb.setLength(0);
+                sb.append(f + 1).append(",").append(formatValue(f * frameIntervalMin));
+                for (int r = 0; r < nRois; r++) {
+                    for (int t = 0; t < traceTypes.length; t++) {
+                        if (traceData[t] != null) {
+                            sb.append(",");
+                            if (r < traceData[t].length && f < traceData[t][r].length) {
+                                sb.append(formatValue(traceData[t][r][f]));
+                            } else {
+                                sb.append("NaN");
+                            }
+                        }
+                    }
+                }
+                pw.println(sb.toString());
+            }
+
+            IJ.log("CsvWriter: Saved consolidated traces to " + path);
+        } catch (IOException e) {
+            IJ.log("CsvWriter: Error writing consolidated CSV: " + e.getMessage());
+        } finally {
+            if (pw != null) pw.close();
+        }
+    }
+
+    /**
      * Formats a double value for CSV output. Handles NaN gracefully.
      */
     private static String formatValue(double value) {

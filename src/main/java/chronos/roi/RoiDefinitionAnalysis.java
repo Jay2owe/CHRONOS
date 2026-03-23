@@ -500,6 +500,35 @@ public class RoiDefinitionAnalysis implements Analysis {
                 String roiPath = roiDir + baseName + "_rois.zip";
                 RoiIO.saveRoisToZip(allRois.toArray(new Roi[0]), roiPath);
                 IJ.log("  Saved " + allRois.size() + " ROI(s) to " + roiPath);
+
+                // Generate ROI overlay on mean projection as sanity check
+                String meanPath = projDir + baseName + "_mean.tif";
+                if (!new File(meanPath).exists()) {
+                    String strippedBase2 = baseName.endsWith("_corrected")
+                            ? baseName.substring(0, baseName.length() - "_corrected".length()) : baseName;
+                    meanPath = projDir + strippedBase2 + "_mean.tif";
+                }
+                if (new File(meanPath).exists()) {
+                    ImagePlus meanForOverlay = IJ.openImage(meanPath);
+                    if (meanForOverlay != null) {
+                        Overlay ov = new Overlay();
+                        Color[] roiColors = {Color.YELLOW, Color.CYAN, Color.MAGENTA,
+                                Color.GREEN, Color.RED, Color.ORANGE};
+                        for (int r = 0; r < allRois.size(); r++) {
+                            Roi roiCopy = (Roi) allRois.get(r).clone();
+                            roiCopy.setStrokeColor(roiColors[r % roiColors.length]);
+                            roiCopy.setStrokeWidth(1.5);
+                            ov.add(roiCopy);
+                        }
+                        meanForOverlay.setOverlay(ov);
+                        ImagePlus flat = meanForOverlay.flatten();
+                        String overlayPath = projDir + baseName + "_mean_with_rois.png";
+                        IJ.saveAs(flat, "PNG", overlayPath);
+                        flat.close();
+                        meanForOverlay.close();
+                        IJ.log("  Saved ROI overlay: " + baseName + "_mean_with_rois.png");
+                    }
+                }
             } else {
                 IJ.log("  No ROIs defined for " + baseName);
             }

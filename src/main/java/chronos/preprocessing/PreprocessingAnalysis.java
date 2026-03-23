@@ -10,6 +10,7 @@ import chronos.ui.ToggleSwitch;
 import ij.IJ;
 import ij.ImagePlus;
 import ij.ImageStack;
+import ij.Menus;
 import ij.WindowManager;
 import ij.gui.Roi;
 import ij.gui.WaitForUserDialog;
@@ -964,8 +965,13 @@ public class PreprocessingAnalysis implements Analysis {
 
             // Step 8: Apply LUT
             if (!"None".equalsIgnoreCase(config.lutName)) {
-                IJ.log("  Step 8: Applying LUT (" + config.lutName + ")");
-                IJ.run(imp, config.lutName, "");
+                if (imp.getType() == ImagePlus.COLOR_RGB) {
+                    IJ.log("  Step 8: LUT skipped — cannot apply LUT to RGB image. "
+                            + "Convert to grayscale first or use a pre-ROI filter to extract a channel.");
+                } else {
+                    IJ.log("  Step 8: Applying LUT (" + config.lutName + ")");
+                    IJ.run(imp, config.lutName, "");
+                }
             }
 
             // Save corrected stack
@@ -1474,40 +1480,72 @@ public class PreprocessingAnalysis implements Analysis {
     }
 
     /**
+     * Returns the ImageJ command name that a registration method depends on,
+     * or null if the method is implemented internally.
+     */
+    public static String getRequiredCommand(String method) {
+        if ("SIFT".equalsIgnoreCase(method)) return "Linear Stack Alignment with SIFT";
+        if ("Descriptor-Based".equalsIgnoreCase(method)) return "Descriptor-based series registration (2d/3d + t)";
+        if ("Correct 3D Drift".equalsIgnoreCase(method)
+                || "Correct 3D Drift (Manual Landmarks)".equalsIgnoreCase(method))
+            return "Correct 3D Drift";
+        return null;
+    }
+
+    /**
+     * Checks whether a registration method's required plugin is installed.
+     */
+    public static boolean isMethodAvailable(String method) {
+        String cmd = getRequiredCommand(method);
+        if (cmd == null) return true; // internally implemented
+        java.util.Hashtable commands = Menus.getCommands();
+        return commands != null && commands.containsKey(cmd);
+    }
+
+    /**
      * Returns help text for the selected motion correction method.
      */
     private static String getMethodHelpText(String method) {
+        String text = "Corrects sample drift across frames.";
         if ("Automatic".equalsIgnoreCase(method)) {
-            return "Analyzes drift pattern automatically and selects the best method. "
+            text = "Analyzes drift pattern automatically and selects the best method. "
                     + "Fast — adds only ~2s for drift analysis.";
         } else if ("Phase Correlation".equalsIgnoreCase(method)) {
-            return "FFT-based phase correlation with magnitude normalization. "
+            text = "FFT-based phase correlation with magnitude normalization. "
                     + "Intensity-invariant, translation-only. Fast (~1s for 335 frames).";
         } else if ("Phase Correlation + Epoch Detection".equalsIgnoreCase(method)) {
-            return "Detects discrete drift jumps and applies constant shifts per epoch. "
+            text = "Detects discrete drift jumps and applies constant shifts per epoch. "
                     + "Ideal for sparse drift (2-3 jumps per week-long recording).";
         } else if ("Anchor-Patch Tracking".equalsIgnoreCase(method)) {
-            return "Tracks 6 high-gradient patches via NCC. Robust median shift estimate. "
+            text = "Tracks 6 high-gradient patches via NCC. Robust median shift estimate. "
                     + "Good for cell-immune reporters where bright cells move.";
         } else if ("Cross-Correlation".equalsIgnoreCase(method)) {
-            return "Standard FFT cross-correlation. Translation-only, fast, "
+            text = "Standard FFT cross-correlation. Translation-only, fast, "
                     + "but sensitive to intensity changes.";
         } else if ("SIFT".equalsIgnoreCase(method)) {
-            return "Feature-based alignment (rotation + translation). Robust to intensity changes "
+            text = "Feature-based alignment (rotation + translation). Robust to intensity changes "
                     + "but slower (1-3 min). Best for chaotic drift or rotation.";
         } else if ("Descriptor-Based".equalsIgnoreCase(method)) {
-            return "Fiji's Descriptor-based Series Registration (2D/3D + t). "
+            text = "Fiji's Descriptor-based Series Registration (2D/3D + t). "
                     + "Full O(n^2) matching — slowest but handles complex deformations.";
         } else if ("Correct 3D Drift".equalsIgnoreCase(method)) {
-            return "Cross-correlation based. Computes drift on 8-bit greyscale then applies to original. "
+            text = "Cross-correlation based. Computes drift on 8-bit greyscale then applies to original. "
                     + "Robust to moving cells — uses whole-image correlation on tissue landmarks "
                     + "(scratch marks, edges). Best for Incucyte data.";
         } else if ("Correct 3D Drift (Manual Landmarks)".equalsIgnoreCase(method)) {
-            return "Same as Correct 3D Drift, but you draw a rectangle around stable landmarks "
+            text = "Same as Correct 3D Drift, but you draw a rectangle around stable landmarks "
                     + "(scratch marks, tissue edges, well boundary) to track. Ignores moving cells "
                     + "completely. Best when cells confuse automatic registration.";
         }
-        return "Corrects sample drift across frames.";
+
+        // Append availability warning for plugin-dependent methods
+        if (!isMethodAvailable(method)) {
+            String cmd = getRequiredCommand(method);
+            text += " \u26A0 NOT AVAILABLE: The required plugin '" + cmd
+                    + "' is not installed in your Fiji. Please install it via "
+                    + "Help > Update... or select a different method.";
+        }
+        return text;
     }
 
     /**

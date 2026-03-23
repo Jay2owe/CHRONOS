@@ -4,6 +4,7 @@ import chronos.config.SessionConfig;
 import chronos.config.SessionConfigIO;
 import chronos.extraction.SignalExtractionAnalysis;
 import chronos.extraction.TraceExtractor;
+import chronos.io.CsvReader;
 import chronos.io.CsvWriter;
 import chronos.io.IncucyteImporter;
 import chronos.io.RoiIO;
@@ -149,6 +150,11 @@ public class GuidedPipeline {
         stageStart = System.currentTimeMillis();
         doSignalIsolation();
         stageTimes.put("Signal Isolation", System.currentTimeMillis() - stageStart);
+
+        // Consolidate trace CSVs into single files per series
+        IJ.log("");
+        IJ.log("=== Consolidating Traces ===");
+        consolidateTraces();
 
         // Stage 7: Rhythm Analysis
         IJ.log("");
@@ -440,7 +446,58 @@ public class GuidedPipeline {
             IJ.log("Assembly complete: " + assembled.size() + " stack(s) created.");
         }
 
+        // Save auto-detected frame intervals from assembled stack calibration
+        saveFrameIntervalsFromAssembled();
+
         return listTifs(new File(assembledDir));
+    }
+
+    /**
+     * Saves auto-detected frame intervals from assembled stack calibration data.
+     * Also updates config.frameIntervalMin from the detected interval.
+     */
+    private void saveFrameIntervalsFromAssembled() {
+        String intervalsPath = circadianDir + "frame_intervals.txt";
+        File aDir = new File(assembledDir);
+        String[] stacks = aDir.list(new FilenameFilter() {
+            public boolean accept(File d, String name) {
+                return name.toLowerCase().endsWith(".tif") || name.toLowerCase().endsWith(".tiff");
+            }
+        });
+        if (stacks == null || stacks.length == 0) return;
+
+        Map<String, Double> intervals = new LinkedHashMap<String, Double>();
+        for (String stack : stacks) {
+            ImagePlus imp = IJ.openImage(assembledDir + stack);
+            if (imp != null) {
+                double intervalSec = imp.getCalibration().frameInterval;
+                if (intervalSec > 0) {
+                    String baseName = stripExtension(stack);
+                    intervals.put(baseName, intervalSec / 60.0);
+                }
+                imp.close();
+            }
+        }
+
+        if (!intervals.isEmpty()) {
+            PrintWriter pw = null;
+            try {
+                pw = new PrintWriter(new BufferedWriter(new FileWriter(intervalsPath)));
+                pw.println("# CHRONOS frame intervals (minutes)");
+                pw.println("# Auto-detected from Incucyte timestamps");
+                for (Map.Entry<String, Double> entry : intervals.entrySet()) {
+                    pw.println(entry.getKey() + "=" + entry.getValue());
+                }
+            } catch (IOException e) {
+                IJ.log("Error saving frame intervals: " + e.getMessage());
+            } finally {
+                if (pw != null) pw.close();
+            }
+
+            double detected = intervals.values().iterator().next();
+            config.frameIntervalMin = detected;
+            IJ.log("  Frame interval auto-detected: " + detected + " min (saved to frame_intervals.txt)");
+        }
     }
 
     // =========================================================================
@@ -569,7 +626,15 @@ public class GuidedPipeline {
                     "Cross-Correlation", "SIFT", "Descriptor-Based",
                     "Correct 3D Drift", "Correct 3D Drift (Manual Landmarks)"};
             String defaultMethod = (driftResult != null) ? driftResult.recommendedMethod : "Automatic";
-            mcDlg.addChoice("Method", mcMethods, defaultMethod);
+            final JComboBox<String> mcMethodCombo = mcDlg.addChoice("Method", mcMethods, defaultMethod);
+            final JLabel mcAvailLabel = mcDlg.addHelpText(getMethodAvailabilityText(defaultMethod));
+            mcMethodCombo.addActionListener(new java.awt.event.ActionListener() {
+                public void actionPerformed(java.awt.event.ActionEvent e) {
+                    String m = (String) mcMethodCombo.getSelectedItem();
+                    mcAvailLabel.setText("<html><body style='width:280px;'>"
+                            + getMethodAvailabilityText(m) + "</body></html>");
+                }
+            });
             String[] refMethods = {"Mean Projection", "Median Projection", "First Frame"};
             mcDlg.addChoice("Reference", refMethods, "Mean Projection");
 
@@ -831,7 +896,15 @@ public class GuidedPipeline {
                                 "Phase Correlation + Epoch Detection", "Anchor-Patch Tracking",
                                 "Cross-Correlation", "SIFT", "Descriptor-Based",
                                 "Correct 3D Drift", "Correct 3D Drift (Manual Landmarks)"};
-                        retryDlg.addChoice("Method", mcMethods2, methodToUse);
+                        final JComboBox<String> retryCombo = retryDlg.addChoice("Method", mcMethods2, methodToUse);
+                        final JLabel retryAvailLabel = retryDlg.addHelpText(getMethodAvailabilityText(methodToUse));
+                        retryCombo.addActionListener(new java.awt.event.ActionListener() {
+                            public void actionPerformed(java.awt.event.ActionEvent e) {
+                                String m = (String) retryCombo.getSelectedItem();
+                                retryAvailLabel.setText("<html><body style='width:280px;'>"
+                                        + getMethodAvailabilityText(m) + "</body></html>");
+                            }
+                        });
                         if (!retryDlg.showDialog()) continue;
                         methodToUse = retryDlg.getNextChoice();
 
@@ -962,7 +1035,11 @@ public class GuidedPipeline {
 
                 // Apply LUT if configured
                 if (!"None".equalsIgnoreCase(config.lutName)) {
-                    IJ.run(imp, config.lutName, "");
+                    if (imp.getType() == ImagePlus.COLOR_RGB) {
+                        IJ.log("  LUT skipped — cannot apply to RGB image.");
+                    } else {
+                        IJ.run(imp, config.lutName, "");
+                    }
                 }
 
                 // Save projections for ROI definition reuse
@@ -1192,6 +1269,12 @@ public class GuidedPipeline {
         }});
 
         dlg.addSpacer(8);
+        dlg.addHeader("Signal Threshold");
+        ToggleSwitch threshToggle = dlg.addToggle("Apply intensity threshold after isolation", false);
+        dlg.addHelpText("Opens the Threshold dialog on each image so you can slide and preview. "
+                + "Pixels below the threshold are zeroed. Applied uniformly for fair comparison.");
+
+        dlg.addSpacer(8);
         dlg.addHeader("Video Export");
         ToggleSwitch aviToggle = dlg.addToggle("Save as AVI video", false);
         String[] lutOptions = {"None", "Green", "Fire", "Cyan Hot", "Grays", "Magenta", "Red", "Blue"};
@@ -1210,6 +1293,7 @@ public class GuidedPipeline {
         boolean enabled = dlg.getNextBoolean();
         String selectedPreset = dlg.getNextChoice();
         String customMacro = dlg.getNextString();
+        boolean thresholdEnabled = dlg.getNextBoolean();
         boolean saveAvi = dlg.getNextBoolean();
         String aviLut = dlg.getNextChoice();
         int aviFps = Math.max(1, (int) dlg.getNextNumber());
@@ -1250,6 +1334,8 @@ public class GuidedPipeline {
         String[] corrected = listTifs(new File(correctedDir));
 
         boolean previewShown = false;
+        boolean thresholdConfirmedForAll = false;
+        double confirmedThreshold = -1;
 
         for (int fi = 0; fi < corrected.length; fi++) {
             String f = corrected[fi];
@@ -1265,9 +1351,77 @@ public class GuidedPipeline {
 
             if (isolated == null) continue;
 
+            // Apply signal threshold if enabled
+            if (thresholdEnabled) {
+                if (thresholdConfirmedForAll && confirmedThreshold > 0) {
+                    // Apply previously confirmed threshold
+                    applyThresholdToStack(isolated, confirmedThreshold);
+                    IJ.log("    Applied threshold: " + (int) confirmedThreshold);
+                } else if (!thresholdConfirmedForAll) {
+                    // Interactive threshold preview
+                    isolated.show();
+                    IJ.run(isolated, "Threshold...", "");
+
+                    // Apply persisted threshold if available
+                    if (confirmedThreshold > 0) {
+                        IJ.setThreshold(isolated, confirmedThreshold,
+                                isolated.getProcessor().getMax());
+                        isolated.updateAndDraw();
+                    }
+
+                    WaitForUserDialog threshDlg = new WaitForUserDialog(
+                            "Signal Threshold \u2014 " + baseName,
+                            "Image " + (fi + 1) + "/" + corrected.length + ": " + baseName + "\n\n"
+                            + "Adjust the Threshold slider to isolate signal.\n"
+                            + "Pixels below the threshold will be zeroed.\n\n"
+                            + "Click OK to lock in.");
+                    threshDlg.show();
+
+                    double readThresh = isolated.getProcessor().getMinThreshold();
+                    isolated.hide();
+
+                    // Close Threshold window
+                    java.awt.Frame threshFrame = WindowManager.getFrame("Threshold");
+                    if (threshFrame != null) threshFrame.dispose();
+
+                    // Confirm dialog with skip / confirm-for-all
+                    PipelineDialog confirmDlg = new PipelineDialog("Confirm Threshold \u2014 " + baseName);
+                    confirmDlg.addHeader("Confirm Signal Threshold");
+                    confirmDlg.addMessage("Read from image: " + (int) readThresh);
+                    String defVal = (readThresh > 0 && !Double.isNaN(readThresh))
+                            ? String.valueOf((int) readThresh) : "0";
+                    confirmDlg.addNumericField("Threshold value", Double.parseDouble(defVal), 0);
+                    String[] threshActions = {"Apply to this image", "Apply to ALL remaining images", "Skip (no threshold)"};
+                    confirmDlg.addChoice("Action", threshActions, threshActions[0]);
+
+                    if (confirmDlg.showDialog()) {
+                        confirmedThreshold = confirmDlg.getNextNumber();
+                        String action = confirmDlg.getNextChoice();
+                        if ("Skip (no threshold)".equals(action)) {
+                            confirmedThreshold = -1;
+                            IJ.log("    Threshold: skipped for " + baseName);
+                        } else {
+                            if (confirmedThreshold > 0) {
+                                applyThresholdToStack(isolated, confirmedThreshold);
+                                IJ.log("    Applied threshold: " + (int) confirmedThreshold);
+                            }
+                            if ("Apply to ALL remaining images".equals(action)) {
+                                thresholdConfirmedForAll = true;
+                                config.signalThreshold = confirmedThreshold;
+                                IJ.log("    Threshold locked for all images: " + (int) confirmedThreshold);
+                            }
+                        }
+                    }
+                }
+            }
+
             // Apply LUT if selected
             if (!"None".equalsIgnoreCase(aviLut)) {
-                IJ.run(isolated, aviLut, "");
+                if (isolated.getType() == ImagePlus.COLOR_RGB) {
+                    IJ.log("  LUT skipped — cannot apply to RGB image.");
+                } else {
+                    IJ.run(isolated, aviLut, "");
+                }
             }
 
             // Save filtered stack to .circadian/filtered/
@@ -1359,6 +1513,108 @@ public class GuidedPipeline {
         }
 
         // Visualization runs as its own stage (Stage 8) after isolation
+    }
+
+    // =========================================================================
+    // Trace Consolidation
+    // =========================================================================
+
+    /**
+     * Consolidates individual trace CSVs into per-series combined files.
+     * Produces two files per series:
+     * - {baseName}_ROI_Traces.csv (with ROI extraction)
+     * - {baseName}_WholeImage_Traces.csv (whole-image, no ROI)
+     * Replaces individual Raw/DeltaFF/Isolated/Zscore CSVs.
+     */
+    private void consolidateTraces() {
+        File tracesFile = new File(tracesDir);
+        if (!tracesFile.exists()) return;
+
+        // Find all unique base names from existing trace files
+        String[] csvFiles = tracesFile.list(new FilenameFilter() {
+            public boolean accept(File d, String name) {
+                return name.endsWith(".csv");
+            }
+        });
+        if (csvFiles == null || csvFiles.length == 0) return;
+
+        // Extract base names from trace files (skip already-consolidated and tracking files)
+        Set<String> baseNames = new LinkedHashSet<String>();
+        String[] knownPrefixes = {"Raw_Traces_", "DeltaF_F_Traces_",
+                "Zscore_Traces_", "Isolated_Traces_", "Isolated_WholeImage_"};
+        for (String csv : csvFiles) {
+            String base = csv;
+            boolean matched = false;
+            for (String prefix : knownPrefixes) {
+                if (base.startsWith(prefix)) {
+                    base = base.substring(prefix.length());
+                    matched = true;
+                    break;
+                }
+            }
+            if (!matched) continue; // Skip consolidated files, tracking files, etc.
+            // Strip .csv extension
+            if (base.endsWith(".csv")) base = base.substring(0, base.length() - 4);
+            baseNames.add(base);
+        }
+
+        for (String baseName : baseNames) {
+            // Read each trace type if available
+            String[][] headersHolder = new String[1][];
+
+            double[][] rawTraces = CsvReader.readTraces(
+                    tracesDir + "Raw_Traces_" + baseName + ".csv", headersHolder);
+            String[] roiNames = (headersHolder[0] != null) ? headersHolder[0] : null;
+
+            double[][] deltaTraces = CsvReader.readTraces(
+                    tracesDir + "DeltaF_F_Traces_" + baseName + ".csv", null);
+
+            double[][] zscoreTraces = CsvReader.readTraces(
+                    tracesDir + "Zscore_Traces_" + baseName + ".csv", null);
+
+            double[][] isolatedTraces = CsvReader.readTraces(
+                    tracesDir + "Isolated_Traces_" + baseName + ".csv", null);
+
+            // Determine number of frames
+            int nFrames = 0;
+            if (rawTraces != null) nFrames = rawTraces[0].length;
+            else if (deltaTraces != null) nFrames = deltaTraces[0].length;
+            else if (isolatedTraces != null) nFrames = isolatedTraces[0].length;
+
+            if (nFrames == 0) continue;
+
+            // Build ROI consolidated CSV
+            boolean hasRoiData = rawTraces != null || deltaTraces != null || isolatedTraces != null;
+            if (hasRoiData && roiNames != null) {
+                String[] traceTypes = {"Raw", "DeltaFF", "Isolated", "Zscore"};
+                double[][][] allData = {rawTraces, deltaTraces, isolatedTraces, zscoreTraces};
+
+                String roiPath = tracesDir + baseName + "_ROI_Traces.csv";
+                CsvWriter.writeConsolidatedTraces(roiPath, roiNames, traceTypes,
+                        allData, nFrames, config.frameIntervalMin);
+                IJ.log("  Consolidated ROI traces: " + baseName);
+            }
+
+            // Build whole-image consolidated CSV (from Isolated_WholeImage if available)
+            String wholeImageCsv = tracesDir + "Isolated_WholeImage_" + baseName + ".csv";
+            if (new File(wholeImageCsv).exists()) {
+                // Whole-image traces are single-column, read them directly
+                double[][] wholeIsolated = CsvReader.readTraces(wholeImageCsv, null);
+                if (wholeIsolated != null) {
+                    // Also extract whole-image raw if we can compute it from the corrected stack
+                    String[] types = {"Isolated"};
+                    double[][][] data = {wholeIsolated};
+                    String wholePath = tracesDir + baseName + "_WholeImage_Traces.csv";
+                    CsvWriter.writeConsolidatedTraces(wholePath, null, types,
+                            data, wholeIsolated[0].length, config.frameIntervalMin);
+                    IJ.log("  Consolidated whole-image traces: " + baseName);
+                }
+            }
+
+            // Individual CSVs kept for internal pipeline use (rhythm analysis, visualization)
+        }
+
+        IJ.log("Trace consolidation complete.");
     }
 
     // =========================================================================
@@ -1696,6 +1952,24 @@ public class GuidedPipeline {
     // Utility methods
     // =========================================================================
 
+    /**
+     * Applies an intensity threshold to all slices of a stack.
+     * Pixels below the threshold are set to zero.
+     */
+    private static void applyThresholdToStack(ImagePlus imp, double threshold) {
+        ImageStack stack = imp.getStack();
+        for (int i = 1; i <= stack.getSize(); i++) {
+            ImageProcessor ip = stack.getProcessor(i);
+            for (int p = 0; p < ip.getPixelCount(); p++) {
+                if (ip.getf(p) < threshold) {
+                    ip.setf(p, 0);
+                }
+            }
+        }
+        IJ.resetThreshold(imp);
+        imp.updateAndDraw();
+    }
+
     private static String[] listTifs(File dir) {
         if (dir == null || !dir.exists()) return new String[0];
         String[] files = dir.list(new FilenameFilter() {
@@ -1706,6 +1980,16 @@ public class GuidedPipeline {
         });
         if (files != null) Arrays.sort(files);
         return files != null ? files : new String[0];
+    }
+
+    private static String getMethodAvailabilityText(String method) {
+        if (!PreprocessingAnalysis.isMethodAvailable(method)) {
+            String cmd = PreprocessingAnalysis.getRequiredCommand(method);
+            return "\u26A0 NOT AVAILABLE: The required plugin '" + cmd
+                    + "' is not installed in your Fiji. Please install it via "
+                    + "Help > Update... or select a different method.";
+        }
+        return "";
     }
 
     private static String stripExtension(String filename) {

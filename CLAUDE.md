@@ -10,7 +10,7 @@
 - Required build command:
   - `export JAVA_HOME` to a JDK 17+ installation (e.g. Eclipse Adoptium)
   - `bash mvnw clean package -Denforcer.skip=true`
-- Built artifact: `target/CHRONOS-<version>.jar` (currently `CHRONOS-0.4.3.jar`)
+- Built artifact: `target/CHRONOS-<version>.jar` (currently `CHRONOS-0.5.0.jar`)
 - **Deploy to both Fiji installations:**
   - OneDrive: `~/OneDrive - Imperial College London/ImageJ/Fiji.app/plugins/`
   - Dropbox: `~/UK Dementia Research Institute Dropbox/Brancaccio Lab/Jamie/Fiji.app/plugins/`
@@ -44,7 +44,7 @@ On launch, user chooses between:
 4. Registration — drift scan, method recommendation, interactive approval per stack, restart/reapply options
 5. ROI Definition — existing Module 2
 6. Signal Extraction — existing Module 3 + whole-image trace option
-7. Signal Isolation — filter preset macros, filtered stack + AVI export, LUT selection
+7. Signal Isolation — filter preset macros, filtered stack + AVI export, LUT selection, interactive signal threshold
 8. Rhythm Analysis — FFT, autocorrelation, Lomb-Scargle, wavelet, JTK_CYCLE, cosinor, CircaCompare
 9. Visualization — time-series plots, kymographs, spatial maps, polar plots, scalograms
 10. Cell Tracking — TrackMate+StarDist with per-object-per-frame CSV
@@ -140,7 +140,11 @@ On launch, user chooses between:
 - Correct 3D Drift: computes drift on 8-bit greyscale (with calibration removed — critical for Incucyte), parses shifts from Log, applies to original stack. Robust to moving cells.
 - Correct 3D Drift (Manual Landmarks): same as above but user draws a rectangle around stable landmarks (scratch marks, tissue edges) — only that region is used for cross-correlation, ignoring moving cells entirely. Falls back to automatic if no ROI drawn.
 - Pre-ROI filter presets: bundled .ijm macros in `src/main/resources/named-filters/`. First preset: "Extract Green (Incucyte GFP)" — HSB saturation + double sliding paraboloid (r=50 + r=15) + median fill.
-- LUT: applied after filtering, before save. Display only, does not modify pixel values.
+- LUT: applied after filtering, before save. Display only, does not modify pixel values. Skipped automatically for RGB images with a log warning.
+- Signal threshold: optional post-isolation step. Interactive preview per image using ImageJ's Threshold dialog. Options: apply to this image, apply to ALL remaining, skip. Zeroes pixels below threshold uniformly across all frames. Stored in `config.signalThreshold`.
+- Registration method availability: SIFT, Correct 3D Drift, and Descriptor-Based are checked at runtime via `ij.Menus.getCommands()`. Unavailable methods show a warning in the dropdown but remain selectable.
+- Consolidated trace CSVs: after signal extraction and isolation, per-series `{baseName}_ROI_Traces.csv` and `{baseName}_WholeImage_Traces.csv` are generated with all trace types side by side (Raw, DeltaFF, Isolated, Zscore). Individual CSVs kept for internal pipeline use.
+- ROI overlay sanity check: `{baseName}_mean_with_rois.png` saved to `.circadian/projections/` after ROI definition. Color-coded ROI outlines on mean projection.
 - Registration transforms cached to `.circadian/corrected/registration_transforms_{base}.csv` for reuse
 - Drift analysis outputs: `drift_analysis_{base}.csv`, `drift_trace_{base}.csv`, `drift_trace_{base}.png`
 
@@ -200,3 +204,4 @@ Accessible via "Settings..." button on main pipeline dialog:
 - Preprocessing settings dialog always shows (not suppressed by headless flag)
 - Frame interval auto-detected from Incucyte timestamps and saved for re-runs
 - ROI and trace file lookups try the full name (with `_corrected`) first, then fall back to stripped name — handles both naming conventions
+- Visualization ROI loading requires exact name match (no fallback to arbitrary ROI file) — returns null with warning if not found

@@ -72,6 +72,11 @@ public class SessionConfig {
     public String temporalFilterType = "Moving Average";
     public int temporalFilterWindow = 3;
 
+    // --- Signal Threshold (post-filter) ---
+    /** Intensity threshold applied after filtering to isolate signal.
+     *  Pixels below this value are zeroed. -1 means no threshold. */
+    public double signalThreshold = -1;
+
     // --- Signal Extraction ---
     /** "Sliding Percentile", "First N Frames", "Whole-Trace Mean",
      *  "Whole-Trace Median", or "Exponential Fit" */

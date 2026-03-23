@@ -457,19 +457,8 @@ public class VisualizationAnalysis implements Analysis {
             }
         }
 
-        // Try any ROI zip in the directory
-        File roiFolder = new File(roisDir);
-        if (roiFolder.exists()) {
-            String[] zips = roiFolder.list(new FilenameFilter() {
-                @Override
-                public boolean accept(File d, String name) {
-                    return name.endsWith("_rois.zip");
-                }
-            });
-            if (zips != null && zips.length > 0) {
-                return RoiIO.loadRoisFromZip(roisDir + File.separator + zips[0]);
-            }
-        }
+        // No matching ROI file found for this series
+        IJ.log("  WARNING: No ROI file found matching '" + baseName + "' — skipping ROI-based visualization.");
         return null;
     }
 
