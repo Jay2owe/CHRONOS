@@ -100,7 +100,7 @@ public class RoiDefinitionAnalysis implements Analysis {
         // =====================================================================
         // STEP 2: ROI type selection dialog
         // =====================================================================
-        boolean[] roiTypeFlags = new boolean[6];
+        boolean[] roiTypeFlags = new boolean[7];
         int gridRows = 5;
         int gridCols = 5;
         int cellRadius = 10;
@@ -116,6 +116,8 @@ public class RoiDefinitionAnalysis implements Analysis {
             typeDlg.addToggle("Individual Cells", false);
             typeDlg.addToggle("Custom Regions", false);
             typeDlg.addToggle("Auto-detect SCN Boundary", false);
+            typeDlg.addToggle("Auto-detect Core/Shell", false);
+            typeDlg.addHelpText("Subdivides the SCN boundary into Core (bright) and Shell (dim) using k-means clustering.");
 
             typeDlg.addSpacer(8);
             typeDlg.addHeader("Projection for ROI Drawing");
@@ -143,6 +145,7 @@ public class RoiDefinitionAnalysis implements Analysis {
             roiTypeFlags[3] = typeDlg.getNextBoolean();
             roiTypeFlags[4] = typeDlg.getNextBoolean();
             roiTypeFlags[5] = typeDlg.getNextBoolean();
+            roiTypeFlags[6] = typeDlg.getNextBoolean();
 
             projectionType = typeDlg.getNextChoice();
             gridRows = Math.max(1, (int) typeDlg.getNextNumber());
@@ -158,6 +161,7 @@ public class RoiDefinitionAnalysis implements Analysis {
         boolean wantCells = roiTypeFlags[3];
         boolean wantCustom = roiTypeFlags[4];
         boolean wantAutoDetect = roiTypeFlags[5];
+        boolean wantCoreShell = roiTypeFlags[6];
         boolean useMaxProj = "Max".equals(projectionType);
 
         // =====================================================================
@@ -384,6 +388,20 @@ public class RoiDefinitionAnalysis implements Analysis {
                     rm.addRoi(r);
                 }
                 IJ.log("  Grid overlay created (" + gridRois.length + " cells).");
+            }
+
+            // Core/Shell detection
+            if (wantCoreShell && scnBoundary != null) {
+                Roi[] coreShellRois = SubRegionDetector.detectCoreShell(displayProj, scnBoundary);
+                for (Roi r : coreShellRois) {
+                    allRois.add(r);
+                    rm.addRoi(r);
+                }
+                if (coreShellRois.length > 0) {
+                    IJ.log("  Core/Shell detection: " + coreShellRois.length + " sub-regions.");
+                } else {
+                    IJ.log("  Core/Shell detection failed.");
+                }
             }
 
             // Individual cells
