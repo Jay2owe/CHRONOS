@@ -151,8 +151,11 @@ public class RhythmAnalysis implements Analysis {
             for (int r = 0; r < nRois; r++) {
                 String roiName = roiNames[r];
 
+                // Interpolate NaN values (e.g., from tracking traces with missing frames)
+                double[] cleaned = Detrending.interpolateNaN(traces[r]);
+
                 // Detrend
-                double[] detrended = Detrending.detrend(traces[r], config.detrendingMethod);
+                double[] detrended = Detrending.detrend(cleaned, config.detrendingMethod);
 
                 // --- Period estimation ---
                 double bestPeriod = Double.NaN;
@@ -315,7 +318,8 @@ public class RhythmAnalysis implements Analysis {
                 IJ.log("  Running wavelet analysis...");
                 waveletResults = new WaveletResult[nRois];
                 for (int r = 0; r < nRois; r++) {
-                    double[] detrended = Detrending.detrend(traces[r], config.detrendingMethod);
+                    double[] cleanedW = Detrending.interpolateNaN(traces[r]);
+                    double[] detrended = Detrending.detrend(cleanedW, config.detrendingMethod);
                     WaveletResult wr = WaveletAnalyzer.analyze(detrended, frameIntervalHours,
                             config.periodMinHours, config.periodMaxHours, 100, 6.0);
 

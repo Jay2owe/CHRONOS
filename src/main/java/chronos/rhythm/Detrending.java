@@ -21,6 +21,60 @@ public class Detrending {
     private Detrending() { }
 
     /**
+     * Fill NaN values in a trace by linear interpolation between valid points.
+     * Leading/trailing NaNs are filled with the nearest valid value.
+     * Returns a new array (does not modify input).
+     */
+    public static double[] interpolateNaN(double[] trace) {
+        int n = trace.length;
+        double[] out = new double[n];
+        System.arraycopy(trace, 0, out, 0, n);
+
+        // Find first and last valid indices
+        int firstValid = -1, lastValid = -1;
+        for (int i = 0; i < n; i++) {
+            if (!Double.isNaN(out[i])) {
+                if (firstValid < 0) firstValid = i;
+                lastValid = i;
+            }
+        }
+
+        // All NaN — fill with zeros
+        if (firstValid < 0) {
+            java.util.Arrays.fill(out, 0);
+            return out;
+        }
+
+        // Fill leading NaNs
+        for (int i = 0; i < firstValid; i++) out[i] = out[firstValid];
+
+        // Fill trailing NaNs
+        for (int i = lastValid + 1; i < n; i++) out[i] = out[lastValid];
+
+        // Linear interpolation for interior NaN gaps
+        int i = firstValid;
+        while (i <= lastValid) {
+            if (Double.isNaN(out[i])) {
+                // Find end of NaN gap
+                int gapStart = i;
+                while (i <= lastValid && Double.isNaN(out[i])) i++;
+                int gapEnd = i; // first valid after gap
+                // Interpolate
+                double v0 = out[gapStart - 1];
+                double v1 = out[gapEnd];
+                int gapLen = gapEnd - gapStart;
+                for (int j = 0; j < gapLen; j++) {
+                    out[gapStart + j] = v0 + (v1 - v0) * (j + 1.0) / (gapLen + 1.0);
+                }
+            } else {
+                i++;
+            }
+        }
+
+        return out;
+    }
+
+    /**
      * Returns a copy of the trace with no detrending applied.
      */
     public static double[] none(double[] trace) {
