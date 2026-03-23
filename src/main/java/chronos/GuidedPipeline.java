@@ -1421,16 +1421,47 @@ public class GuidedPipeline {
 
     private void showCompletionDialog(long totalElapsed) {
         String duration = formatDuration(totalElapsed);
+        String timestamp = new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(new java.util.Date());
+
+        String[] summaryLines = {
+            "CHRONOS Guided Pipeline Run Summary",
+            "Date: " + timestamp,
+            "Stacks processed: " + stacksProcessed,
+            "Registration method: " + registrationMethodUsed,
+            "ROI files: " + roisDefined,
+            "Trace files: " + tracesExtracted,
+            "Signal isolation: " + (isolationApplied ? "Yes" : "No"),
+            "Cell tracking: " + (trackingRan ? "Yes" : "No"),
+            "Total time: " + duration,
+            "Reporter type: " + config.reporterType,
+            "Frame interval: " + config.frameIntervalMin + " min",
+            "Output directory: " + circadianDir
+        };
 
         IJ.log("");
         IJ.log("=== CHRONOS Guided Pipeline Complete ===");
-        IJ.log("  Stacks processed: " + stacksProcessed);
-        IJ.log("  Registration method: " + registrationMethodUsed);
-        IJ.log("  ROI files: " + roisDefined);
-        IJ.log("  Trace files: " + tracesExtracted);
-        IJ.log("  Signal isolation: " + (isolationApplied ? "Yes" : "No"));
-        IJ.log("  Cell tracking: " + (trackingRan ? "Yes" : "No"));
-        IJ.log("  Total time: " + duration);
+        for (String line : summaryLines) {
+            IJ.log("  " + line);
+        }
+
+        // Save run summary to disk
+        PrintWriter pw = null;
+        try {
+            pw = new PrintWriter(new BufferedWriter(
+                    new FileWriter(circadianDir + "run_summary.txt")));
+            for (String line : summaryLines) {
+                pw.println(line);
+            }
+            IJ.log("  Run summary saved to .circadian/run_summary.txt");
+        } catch (IOException e) {
+            IJ.log("  Could not save run summary: " + e.getMessage());
+        } finally {
+            if (pw != null) pw.close();
+        }
+
+        // Re-save config with values that changed during the run
+        config.motionCorrectionMethod = registrationMethodUsed;
+        SessionConfigIO.writeToDirectory(directory, config);
 
         PipelineDialog dlg = new PipelineDialog("CHRONOS — Complete");
         dlg.addHeader("Pipeline Complete");
@@ -1442,6 +1473,7 @@ public class GuidedPipeline {
         dlg.addMessage("Cell tracking: <b>" + (trackingRan ? "Yes" : "No") + "</b>");
         dlg.addSpacer(4);
         dlg.addMessage("Total time: <b>" + duration + "</b>");
+        dlg.addMessage("Output: <b>" + circadianDir + "</b>");
         dlg.showDialog();
     }
 
@@ -1677,6 +1709,9 @@ public class GuidedPipeline {
         long seconds = millis / 1000;
         long minutes = seconds / 60;
         seconds = seconds % 60;
+        long hours = minutes / 60;
+        minutes = minutes % 60;
+        if (hours > 0) return hours + "h " + minutes + "m " + seconds + "s";
         if (minutes > 0) return minutes + "m " + seconds + "s";
         return seconds + "s";
     }
