@@ -123,6 +123,7 @@ public class SessionConfig {
     public boolean vizRasterPlot = true;
     public boolean vizPolarPlot = true;
     public boolean vizScalogram = true;
+    public boolean vizPixelMaps = false;
 
     // --- Export ---
     /** "PNG" or "TIFF" */

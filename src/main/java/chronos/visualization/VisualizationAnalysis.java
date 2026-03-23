@@ -240,7 +240,31 @@ public class VisualizationAnalysis implements Analysis {
                         frameIntervalHours, config);
             }
 
-            // 9. Summary Dashboard
+            // 9. Per-Pixel Rhythmicity Maps
+            if (config.vizPixelMaps) {
+                IJ.log("  Generating per-pixel rhythmicity maps...");
+                // Load the corrected stack for this recording
+                String correctedFile = correctedDir + File.separator + baseName + "_corrected.tif";
+                if (!new File(correctedFile).exists()) {
+                    correctedFile = correctedDir + File.separator + baseName + ".tif";
+                }
+                if (new File(correctedFile).exists()) {
+                    ImagePlus correctedImp = IJ.openImage(correctedFile);
+                    if (correctedImp != null) {
+                        String mapsDir = vizDir + File.separator + "pixel_maps";
+                        new File(mapsDir).mkdirs();
+                        RhythmicityMapper.generateMaps(correctedImp, frameIntervalHours,
+                                config.periodMinHours, config.periodMaxHours,
+                                config.detrendingMethod,
+                                mapsDir + File.separator, baseName);
+                        correctedImp.close();
+                    }
+                } else {
+                    IJ.log("    Corrected stack not found, skipping pixel maps.");
+                }
+            }
+
+            // 10. Summary Dashboard
             if (hasRhythmResults) {
                 IJ.log("  Generating summary dashboard...");
                 ImagePlus dashboard = SummaryDashboard.generate(timesH, traces,
@@ -274,6 +298,9 @@ public class VisualizationAnalysis implements Analysis {
         dlg.addToggle("Raster Plot", config.vizRasterPlot);
         dlg.addToggle("Polar Phase Plot", config.vizPolarPlot);
         dlg.addToggle("Wavelet Scalograms", config.vizScalogram);
+        dlg.addToggle("Per-Pixel Rhythmicity Maps", config.vizPixelMaps);
+        dlg.addHelpText("Runs cosinor on every pixel — generates period, phase, amplitude, " +
+                "R-squared, and p-value heatmaps as 32-bit TIFFs. Computationally expensive.");
 
         dlg.addSpacer(8);
         dlg.addHelpText("Wavelet scalograms are only generated if wavelet analysis was " +
@@ -291,6 +318,7 @@ public class VisualizationAnalysis implements Analysis {
         config.vizRasterPlot = dlg.getNextBoolean();
         config.vizPolarPlot = dlg.getNextBoolean();
         config.vizScalogram = dlg.getNextBoolean();
+        config.vizPixelMaps = dlg.getNextBoolean();
 
         return true;
     }

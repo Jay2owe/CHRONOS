@@ -132,6 +132,7 @@ public class SessionConfigIO {
         cfg.vizRasterPlot = getBool(props, "vizRasterPlot", cfg.vizRasterPlot);
         cfg.vizPolarPlot = getBool(props, "vizPolarPlot", cfg.vizPolarPlot);
         cfg.vizScalogram = getBool(props, "vizScalogram", cfg.vizScalogram);
+        cfg.vizPixelMaps = getBool(props, "vizPixelMaps", cfg.vizPixelMaps);
 
         // Export
         cfg.exportImageFormat = getString(props, "exportImageFormat", cfg.exportImageFormat);
@@ -258,6 +259,7 @@ public class SessionConfigIO {
             pw.println("vizRasterPlot=" + cfg.vizRasterPlot);
             pw.println("vizPolarPlot=" + cfg.vizPolarPlot);
             pw.println("vizScalogram=" + cfg.vizScalogram);
+            pw.println("vizPixelMaps=" + cfg.vizPixelMaps);
             pw.println();
 
             pw.println("# Export");
