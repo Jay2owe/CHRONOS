@@ -1298,30 +1298,35 @@ public class GuidedPipeline {
         String aviLut = dlg.getNextChoice();
         int aviFps = Math.max(1, (int) dlg.getNextNumber());
 
-        if (!enabled) {
+        if (!enabled && !thresholdEnabled && !saveAvi) {
             IJ.log("  Signal isolation: skipped");
             return;
         }
 
-        String macroCommands;
-        if ("Custom".equals(selectedPreset)) {
-            macroCommands = customMacro;
-        } else {
-            macroCommands = NamedFilterLoader.loadFilterContent(selectedPreset);
-            if (macroCommands == null) {
-                IJ.log("  WARNING: Could not load preset '" + selectedPreset + "'. Skipping.");
-                return;
+        String macroCommands = null;
+        if (enabled) {
+            if ("Custom".equals(selectedPreset)) {
+                macroCommands = customMacro;
+            } else {
+                macroCommands = NamedFilterLoader.loadFilterContent(selectedPreset);
+                if (macroCommands == null) {
+                    IJ.log("  WARNING: Could not load preset '" + selectedPreset + "'.");
+                }
             }
-            IJ.log("  Using preset: " + selectedPreset);
-        }
-
-        if (macroCommands.trim().isEmpty()) {
-            IJ.log("  Signal isolation: skipped (empty macro)");
-            return;
+            if (macroCommands != null && macroCommands.trim().isEmpty()) {
+                macroCommands = null;
+            }
+            if (macroCommands != null) {
+                IJ.log("  Using preset: " + selectedPreset);
+            }
         }
 
         isolationApplied = true;
-        IJ.log("  Running signal isolation macro on corrected stacks...");
+        if (macroCommands != null) {
+            IJ.log("  Running signal isolation macro on corrected stacks...");
+        } else {
+            IJ.log("  Processing corrected stacks (threshold/export only)...");
+        }
 
         // Create output directories
         String filteredDir = circadianDir + "filtered" + File.separator;
@@ -1346,8 +1351,16 @@ public class GuidedPipeline {
             ImagePlus imp = IJ.openImage(correctedDir + f);
             if (imp == null) continue;
 
-            ImagePlus isolated = SignalIsolator.isolate(imp, macroCommands);
-            imp.close();
+            ImagePlus isolated;
+            if (macroCommands != null) {
+                isolated = SignalIsolator.isolate(imp, macroCommands);
+                imp.close();
+            } else {
+                // No filter macro — work directly on a duplicate of the corrected stack
+                isolated = imp.duplicate();
+                isolated.setTitle(imp.getTitle());
+                imp.close();
+            }
 
             if (isolated == null) continue;
 
@@ -1470,18 +1483,26 @@ public class GuidedPipeline {
                 IJ.log("    Saved AVI: " + baseName + ".avi (" + aviFps + " fps)");
             }
 
-            // Extract traces from isolated image
+            // Extract traces from isolated/thresholded image
             Roi[] rois = loadRoisForFile(roisDir, baseName);
             if (rois != null && rois.length > 0) {
-                double[][] traces = TraceExtractor.extractTraces(isolated, rois);
+                double[][] isoTraces = TraceExtractor.extractTraces(isolated, rois);
                 String[] headers = new String[rois.length];
                 for (int r = 0; r < rois.length; r++) {
                     String name = rois[r].getName();
                     headers[r] = (name != null && !name.isEmpty()) ? name : "ROI_" + (r + 1);
                 }
+
+                // Raw isolated traces
                 String outPath = tracesDir + "Isolated_Traces_" + baseName + ".csv";
-                CsvWriter.writeTraces(outPath, headers, traces, config.frameIntervalMin);
-                IJ.log("    Saved isolated traces (" + rois.length + " ROIs)");
+                CsvWriter.writeTraces(outPath, headers, isoTraces, config.frameIntervalMin);
+
+                // DeltaF/F of isolated traces
+                double[][] isoDeltaFF = SignalExtractionAnalysis.computeDeltaFF(isoTraces, config);
+                String deltaPath = tracesDir + "Isolated_DeltaF_F_" + baseName + ".csv";
+                CsvWriter.writeTraces(deltaPath, headers, isoDeltaFF, config.frameIntervalMin);
+
+                IJ.log("    Saved isolated traces + dF/F (" + rois.length + " ROIs)");
             } else {
                 // Whole-image extraction from isolated
                 int nFrames = isolated.getStackSize();
@@ -1541,7 +1562,8 @@ public class GuidedPipeline {
         // Extract base names from trace files (skip already-consolidated and tracking files)
         Set<String> baseNames = new LinkedHashSet<String>();
         String[] knownPrefixes = {"Raw_Traces_", "DeltaF_F_Traces_",
-                "Zscore_Traces_", "Isolated_Traces_", "Isolated_WholeImage_"};
+                "Zscore_Traces_", "Isolated_Traces_", "Isolated_DeltaF_F_",
+                "Isolated_WholeImage_"};
         for (String csv : csvFiles) {
             String base = csv;
             boolean matched = false;
@@ -1575,6 +1597,9 @@ public class GuidedPipeline {
             double[][] isolatedTraces = CsvReader.readTraces(
                     tracesDir + "Isolated_Traces_" + baseName + ".csv", null);
 
+            double[][] isolatedDeltaTraces = CsvReader.readTraces(
+                    tracesDir + "Isolated_DeltaF_F_" + baseName + ".csv", null);
+
             // Determine number of frames
             int nFrames = 0;
             if (rawTraces != null) nFrames = rawTraces[0].length;
@@ -1586,8 +1611,8 @@ public class GuidedPipeline {
             // Build ROI consolidated CSV
             boolean hasRoiData = rawTraces != null || deltaTraces != null || isolatedTraces != null;
             if (hasRoiData && roiNames != null) {
-                String[] traceTypes = {"Raw", "DeltaFF", "Isolated", "Zscore"};
-                double[][][] allData = {rawTraces, deltaTraces, isolatedTraces, zscoreTraces};
+                String[] traceTypes = {"Raw", "DeltaFF", "Zscore", "Isolated", "Isolated_DeltaFF"};
+                double[][][] allData = {rawTraces, deltaTraces, zscoreTraces, isolatedTraces, isolatedDeltaTraces};
 
                 String roiPath = tracesDir + baseName + "_ROI_Traces.csv";
                 CsvWriter.writeConsolidatedTraces(roiPath, roiNames, traceTypes,

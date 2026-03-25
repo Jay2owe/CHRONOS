@@ -3,6 +3,7 @@ package chronos.preprocessing;
 import ij.IJ;
 import ij.ImagePlus;
 import ij.ImageStack;
+import ij.Menus;
 import ij.WindowManager;
 import ij.plugin.ZProjector;
 import ij.process.FHT;
@@ -125,7 +126,8 @@ public class MotionCorrector {
         IJ.log("\\Clear");
 
         try {
-            IJ.run(grey, "Correct 3D Drift",
+            String cmd = findCorrect3DDriftCommand();
+            IJ.run(grey, cmd,
                     "channel=1 only=0 lowest=1 highest=" + nSlices
                     + " maximum_shift=50 edge_enhance");
         } catch (Exception e) {
@@ -228,11 +230,12 @@ public class MotionCorrector {
             croppedStack.addSlice(srcStack.getSliceLabel(i), ip.crop());
         }
         ImagePlus cropped = new ImagePlus("_3ddrift_roi_tmp", croppedStack);
+        cropped.setDimensions(1, 1, nSlices); // C=1, Z=1, T=nSlices — plugin expects time-lapse, not Z-stack
         IJ.run(cropped, "8-bit", "");
         ij.measure.Calibration cal = cropped.getCalibration();
-        cal.pixelWidth = 1.0;
+        cal.pixelWidth  = 1.0;
         cal.pixelHeight = 1.0;
-        cal.pixelDepth = 1.0;
+        cal.pixelDepth  = 1.0;
         cal.setUnit("pixel");
         cropped.setCalibration(cal);
 
@@ -242,7 +245,8 @@ public class MotionCorrector {
         IJ.log("\\Clear");
 
         try {
-            IJ.run(cropped, "Correct 3D Drift",
+            String cmd = findCorrect3DDriftCommand();
+            IJ.run(cropped, cmd,
                     "channel=1 only=0 lowest=1 highest=" + nSlices
                     + " maximum_shift=50 edge_enhance");
         } catch (Exception e) {
@@ -756,5 +760,24 @@ public class MotionCorrector {
             return (sorted[n / 2 - 1] + sorted[n / 2]) / 2.0;
         }
         return sorted[n / 2];
+    }
+
+    /**
+     * Find the exact registered command name for "Correct 3D Drift" by
+     * case-insensitive search through Fiji's command table. Different Fiji
+     * versions register it as "Correct 3D Drift" or "Correct 3D drift".
+     *
+     * @return the exact command string, or "Correct 3D drift" as fallback
+     */
+    static String findCorrect3DDriftCommand() {
+        java.util.Hashtable commands = Menus.getCommands();
+        if (commands != null) {
+            for (Object key : commands.keySet()) {
+                if (key.toString().equalsIgnoreCase("Correct 3D Drift")) {
+                    return key.toString();
+                }
+            }
+        }
+        return "Correct 3D drift"; // most common registration
     }
 }

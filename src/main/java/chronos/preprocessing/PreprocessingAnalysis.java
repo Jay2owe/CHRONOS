@@ -1499,7 +1499,13 @@ public class PreprocessingAnalysis implements Analysis {
         String cmd = getRequiredCommand(method);
         if (cmd == null) return true; // internally implemented
         java.util.Hashtable commands = Menus.getCommands();
-        return commands != null && commands.containsKey(cmd);
+        if (commands == null) return false;
+        // Case-insensitive check — plugin may register as "Correct 3D drift" or "Correct 3D Drift"
+        if (commands.containsKey(cmd)) return true;
+        for (Object key : commands.keySet()) {
+            if (key.toString().equalsIgnoreCase(cmd)) return true;
+        }
+        return false;
     }
 
     /**

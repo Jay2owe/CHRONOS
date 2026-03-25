@@ -185,20 +185,35 @@ public class SignalExtractionAnalysis implements Analysis {
             CsvWriter.writeTraces(rawPath, roiHeaders, rawTraces, config.frameIntervalMin);
 
             // Compute dF/F if enabled
+            double[][] deltaFF = null;
             if (config.outputDeltaFF) {
-                double[][] deltaFF = computeDeltaFF(rawTraces, config);
+                deltaFF = computeDeltaFF(rawTraces, config);
                 String deltaPath = tracesDir + File.separator + "DeltaF_F_Traces_" + baseName + ".csv";
                 CsvWriter.writeTraces(deltaPath, roiHeaders, deltaFF, config.frameIntervalMin);
                 IJ.log("  Saved dF/F traces");
             }
 
             // Compute Z-score if enabled
+            double[][] zscore = null;
             if (config.outputZscore) {
-                double[][] zscore = computeZscore(rawTraces);
+                zscore = computeZscore(rawTraces);
                 String zPath = tracesDir + File.separator + "Zscore_Traces_" + baseName + ".csv";
                 CsvWriter.writeTraces(zPath, roiHeaders, zscore, config.frameIntervalMin);
                 IJ.log("  Saved Z-score traces");
             }
+
+            // Write consolidated CSV with all trace types side by side
+            java.util.List<String> typeNames = new java.util.ArrayList<String>();
+            java.util.List<double[][]> typeData = new java.util.ArrayList<double[][]>();
+            typeNames.add("Raw"); typeData.add(rawTraces);
+            if (deltaFF != null) { typeNames.add("DeltaFF"); typeData.add(deltaFF); }
+            if (zscore != null) { typeNames.add("Zscore"); typeData.add(zscore); }
+
+            String[] traceTypes = typeNames.toArray(new String[0]);
+            double[][][] allData = typeData.toArray(new double[0][][]);
+            String consolidatedPath = tracesDir + File.separator + baseName + "_ROI_Traces.csv";
+            CsvWriter.writeConsolidatedTraces(consolidatedPath, roiHeaders, traceTypes,
+                    allData, nFrames, config.frameIntervalMin);
 
             imp.close();
             processed++;
@@ -298,7 +313,7 @@ public class SignalExtractionAnalysis implements Analysis {
     /**
      * Computes dF/F traces using the configured F0 method.
      */
-    private double[][] computeDeltaFF(double[][] rawTraces, SessionConfig config) {
+    public static double[][] computeDeltaFF(double[][] rawTraces, SessionConfig config) {
         int nRois = rawTraces.length;
         int nFrames = rawTraces[0].length;
         double[][] deltaFF = new double[nRois][nFrames];
@@ -347,7 +362,7 @@ public class SignalExtractionAnalysis implements Analysis {
     /**
      * Computes Z-score traces: (F - mean) / std for each ROI.
      */
-    private double[][] computeZscore(double[][] rawTraces) {
+    public static double[][] computeZscore(double[][] rawTraces) {
         int nRois = rawTraces.length;
         int nFrames = rawTraces[0].length;
         double[][] zscore = new double[nRois][nFrames];

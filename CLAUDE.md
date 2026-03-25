@@ -8,7 +8,7 @@
 ## Build And Deploy
 - Build from `CHRONOS/`.
 - Required build command:
-  - `export JAVA_HOME` to a JDK 17+ installation (e.g. Eclipse Adoptium)
+  - `export JAVA_HOME="/c/Program Files/Java/jdk-11"` (JDK 11 in `/c/Program Files/Java/`)
   - `bash mvnw clean package -Denforcer.skip=true`
 - Built artifact: `target/CHRONOS-<version>.jar` (currently `CHRONOS-0.5.0.jar`)
 - **Deploy to both Fiji installations:**
@@ -137,13 +137,15 @@ On launch, user chooses between:
 - All interactive steps (crop, align, ROI drawing) always run regardless of headless flag
 - Previous crop/alignment/ROI values prompt reuse dialog before applying
 - Motion correction methods: Automatic, Phase Correlation, Phase Correlation + Epoch Detection, Anchor-Patch Tracking, Cross-Correlation, SIFT, Descriptor-Based, Correct 3D Drift, Correct 3D Drift (Manual Landmarks)
-- Correct 3D Drift: computes drift on 8-bit greyscale (with calibration removed — critical for Incucyte), parses shifts from Log, applies to original stack. Robust to moving cells.
-- Correct 3D Drift (Manual Landmarks): same as above but user draws a rectangle around stable landmarks (scratch marks, tissue edges) — only that region is used for cross-correlation, ignoring moving cells entirely. Falls back to automatic if no ROI drawn.
+- Correct 3D Drift: computes drift on 8-bit greyscale (with calibration removed — critical for Incucyte), parses shifts from Log, applies to original stack. Robust to moving cells. Command name resolved at runtime via case-insensitive lookup (`findCorrect3DDriftCommand()`) because Fiji registers it as "Correct 3D drift" (lowercase d) on some versions.
+- Correct 3D Drift (Manual Landmarks): crops to user-drawn ROI, sets dimensions as time-lapse (`setDimensions(1,1,nSlices)` — critical, otherwise plugin sees Z-stack), runs plugin on crop, parses shifts, applies to full image. Falls back to automatic if no ROI drawn.
 - Pre-ROI filter presets: bundled .ijm macros in `src/main/resources/named-filters/`. First preset: "Extract Green (Incucyte GFP)" — HSB saturation + double sliding paraboloid (r=50 + r=15) + median fill.
 - LUT: applied after filtering, before save. Display only, does not modify pixel values. Skipped automatically for RGB images with a log warning.
-- Signal threshold: optional post-isolation step. Interactive preview per image using ImageJ's Threshold dialog. Options: apply to this image, apply to ALL remaining, skip. Zeroes pixels below threshold uniformly across all frames. Stored in `config.signalThreshold`.
-- Registration method availability: SIFT, Correct 3D Drift, and Descriptor-Based are checked at runtime via `ij.Menus.getCommands()`. Unavailable methods show a warning in the dropdown but remain selectable.
-- Consolidated trace CSVs: after signal extraction and isolation, per-series `{baseName}_ROI_Traces.csv` and `{baseName}_WholeImage_Traces.csv` are generated with all trace types side by side (Raw, DeltaFF, Isolated, Zscore). Individual CSVs kept for internal pipeline use.
+- Signal threshold: independent of signal isolation — can be enabled even without a filter macro. Interactive preview per image using ImageJ's Threshold dialog (slider). Options: apply to this image, apply to ALL remaining, skip. Zeroes pixels below threshold uniformly across all frames. Stored in `config.signalThreshold`. Threshold is applied to the isolated/duplicated image before trace extraction, so Isolated traces come from the thresholded image.
+- Registration method availability: SIFT, Correct 3D Drift, and Descriptor-Based checked at runtime via case-insensitive search of `ij.Menus.getCommands()`. Unavailable methods show a warning in the dropdown but remain selectable.
+- Consolidated trace CSVs: `{baseName}_ROI_Traces.csv` written by SignalExtractionAnalysis directly (works in both Guided and Advanced mode). Format: `Frame, Time_min, ROI1_Raw, ROI1_DeltaFF, ROI1_Zscore, ROI2_Raw, ...`. GuidedPipeline consolidation adds Isolated + Isolated_DeltaFF columns if signal isolation/threshold was applied. Individual CSVs (Raw_Traces_, DeltaF_F_Traces_, Isolated_Traces_, Isolated_DeltaF_F_, etc.) kept for internal pipeline use.
+- Trace types: **Raw** = pixel intensity from corrected stack; **DeltaFF** = (F-F0)/F0 normalized relative change; **Zscore** = (F-mean)/std standardized; **Isolated** = pixel intensity from filtered/thresholded stack (different source image, not a normalization); **Isolated_DeltaFF** = (F-F0)/F0 of the isolated traces.
+- `computeDeltaFF()` and `computeZscore()` in `SignalExtractionAnalysis` are `public static` — reused by GuidedPipeline for isolated trace normalization.
 - ROI overlay sanity check: `{baseName}_mean_with_rois.png` saved to `.circadian/projections/` after ROI definition. Color-coded ROI outlines on mean projection.
 - Registration transforms cached to `.circadian/corrected/registration_transforms_{base}.csv` for reuse
 - Drift analysis outputs: `drift_analysis_{base}.csv`, `drift_trace_{base}.csv`, `drift_trace_{base}.png`
