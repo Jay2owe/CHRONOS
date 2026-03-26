@@ -42,6 +42,8 @@ public class SessionConfig {
     public String motionCorrectionReference = "mean";
     /** Whether to cache and reuse registration transforms across runs */
     public boolean motionCorrectionCacheEnabled = true;
+    /** Spatial downsample factor for Correct 3D Drift (1 = no downsampling) */
+    public int driftDownsampleFactor = 1;
 
     // --- Pre-ROI Filter ---
     /** "None", or a named preset like "Extract Green (Incucyte GFP)" */

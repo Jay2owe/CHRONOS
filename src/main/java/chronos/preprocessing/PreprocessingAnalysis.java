@@ -660,7 +660,7 @@ public class PreprocessingAnalysis implements Analysis {
                         pluginApplied = true;
                     } else if ("Correct 3D Drift".equalsIgnoreCase(method)) {
                         IJ.log("  Step 2c: Motion correction (Correct 3D Drift)");
-                        RegistrationResult driftResult3D = MotionCorrector.correctWith3DDrift(imp);
+                        RegistrationResult driftResult3D = MotionCorrector.correctWith3DDrift(imp, config.driftDownsampleFactor);
                         if (driftResult3D != null) {
                             ImagePlus corrected = MotionCorrector.applyRegistration(imp, driftResult3D);
                             if (corrected != imp) {
@@ -706,7 +706,7 @@ public class PreprocessingAnalysis implements Analysis {
 
                         if (landmarkRoi != null) {
                             RegistrationResult driftResultManual =
-                                    MotionCorrector.correctWith3DDriftManual(imp, landmarkRoi);
+                                    MotionCorrector.correctWith3DDriftManual(imp, landmarkRoi, config.driftDownsampleFactor);
                             if (driftResultManual != null) {
                                 ImagePlus corrected = MotionCorrector.applyRegistration(imp, driftResultManual);
                                 if (corrected != imp) {
@@ -717,7 +717,7 @@ public class PreprocessingAnalysis implements Analysis {
                             }
                         } else {
                             IJ.log("    No ROI drawn — falling back to automatic Correct 3D Drift");
-                            RegistrationResult driftResult3DFb = MotionCorrector.correctWith3DDrift(imp);
+                            RegistrationResult driftResult3DFb = MotionCorrector.correctWith3DDrift(imp, config.driftDownsampleFactor);
                             if (driftResult3DFb != null) {
                                 ImagePlus corrected = MotionCorrector.applyRegistration(imp, driftResult3DFb);
                                 if (corrected != imp) {
@@ -1222,6 +1222,38 @@ public class PreprocessingAnalysis implements Analysis {
         config.motionCorrectionMethod = dlg.getNextChoice();  // Motion Method
         config.motionCorrectionReference = displayToRef(dlg.getNextChoice()); // Reference
         config.motionCorrectionCacheEnabled = dlg.getNextBoolean(); // Cache Enable
+
+        // Show downsample dialog for Correct 3D Drift methods
+        if (config.motionCorrectionEnabled
+                && ("Correct 3D Drift".equalsIgnoreCase(config.motionCorrectionMethod)
+                    || "Correct 3D Drift (Manual Landmarks)".equalsIgnoreCase(config.motionCorrectionMethod))) {
+            PipelineDialog dsDlg = new PipelineDialog("CHRONOS — 3D Drift Downsampling");
+            dsDlg.addHeader("Downsample for Drift Computation");
+            dsDlg.addHelpText("Computing drift on a downsampled copy is much faster for large images. "
+                    + "The drift vectors are automatically scaled back to full resolution and applied "
+                    + "to the original image. A factor of 2-4 works well for most data.");
+            dsDlg.addSpacer(4);
+            ToggleSwitch dsToggle = dsDlg.addToggle("Downsample before drift computation",
+                    config.driftDownsampleFactor > 1);
+            final JTextField dsFactorField = dsDlg.addNumericField("Downsample factor",
+                    Math.max(2, config.driftDownsampleFactor), 0);
+            dsFactorField.setEnabled(config.driftDownsampleFactor > 1);
+            dsToggle.addChangeListener(new Runnable() {
+                public void run() {
+                    dsFactorField.setEnabled(dsToggle.isSelected());
+                }
+            });
+            if (!dsDlg.showDialog()) {
+                return false;
+            }
+            boolean dsEnabled = dsDlg.getNextBoolean();
+            int dsFactor = (int) dsDlg.getNextNumber();
+            if (dsEnabled && dsFactor > 1) {
+                config.driftDownsampleFactor = dsFactor;
+            } else {
+                config.driftDownsampleFactor = 1;
+            }
+        }
 
         boolean bgOn = dlg.getNextBoolean();               // BG Enable
         String bgMethod = dlg.getNextChoice();             // BG Method (always consume)

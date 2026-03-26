@@ -74,6 +74,7 @@ public class SessionConfigIO {
         cfg.motionCorrectionMethod = getString(props, "motionCorrectionMethod", cfg.motionCorrectionMethod);
         cfg.motionCorrectionReference = getString(props, "motionCorrectionReference", cfg.motionCorrectionReference);
         cfg.motionCorrectionCacheEnabled = getBool(props, "motionCorrectionCacheEnabled", cfg.motionCorrectionCacheEnabled);
+        cfg.driftDownsampleFactor = getInt(props, "driftDownsampleFactor", cfg.driftDownsampleFactor);
 
         // Background Subtraction
         cfg.backgroundMethod = getString(props, "backgroundMethod", cfg.backgroundMethod);
@@ -196,6 +197,7 @@ public class SessionConfigIO {
             pw.println("motionCorrectionMethod=" + cfg.motionCorrectionMethod);
             pw.println("motionCorrectionReference=" + cfg.motionCorrectionReference);
             pw.println("motionCorrectionCacheEnabled=" + cfg.motionCorrectionCacheEnabled);
+            pw.println("driftDownsampleFactor=" + cfg.driftDownsampleFactor);
             pw.println();
 
             pw.println("# Background Subtraction");

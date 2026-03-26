@@ -101,23 +101,57 @@ public class MotionCorrector {
      * @return RegistrationResult with per-frame shifts, or null if the plugin failed
      */
     public static RegistrationResult correctWith3DDrift(ImagePlus imp) {
-        int nSlices = imp.getStackSize();
-        if (nSlices <= 1) {
+        return correctWith3DDrift(imp, 1);
+    }
+
+    /**
+     * Correct drift using Fiji's "Correct 3D Drift" plugin.
+     * Extracts the blue channel (stable tissue texture, no fluorescence) for
+     * registration, parses per-frame dx/dy corrections from the ImageJ Log,
+     * then the caller applies them to the original RGB/colour stack.
+     *
+     * Always uses multi_time_scale, sub_pixel, and edge_enhance for best results.
+     *
+     * @param imp input stack (any type/colour)
+     * @param downsampleFactor spatial downsample factor (1 = no downsampling)
+     * @return RegistrationResult with per-frame shifts (in full-resolution pixels), or null if failed
+     */
+    public static RegistrationResult correctWith3DDrift(ImagePlus imp, int downsampleFactor) {
+        // Use getNFrames for hyperstacks, fall back to getStackSize for plain stacks
+        int nFrames = imp.getNFrames() > 1 ? imp.getNFrames() : imp.getStackSize();
+        if (nFrames <= 1) {
             return new RegistrationResult(new double[1], new double[1], new double[]{1.0},
                     "Correct 3D Drift", "plugin");
         }
 
-        IJ.log("  Running Correct 3D Drift (" + nSlices + " frames, blue channel registration)...");
+        if (downsampleFactor < 1) downsampleFactor = 1;
+        boolean doDownsample = downsampleFactor > 1;
+
+        IJ.log("  Running Correct 3D Drift (" + nFrames + " frames, blue channel registration"
+                + (doDownsample ? ", " + downsampleFactor + "x downsample" : "") + ")...");
 
         // --- 1. Extract the blue channel for registration ---
-        // Blue channel has stable tissue texture without fluorescent signal from
-        // moving cells (GFP in green, RFP in red). Converting the full RGB to
-        // greyscale would include moving cell signal and corrupt the alignment.
+        // extractBlueChannel returns a single-channel stack with nFrames slices
         ImagePlus regChannel = extractBlueChannel(imp);
         regChannel.setTitle("_3ddrift_blue_tmp");
 
+        // --- 1b. Downsample if requested ---
+        if (doDownsample) {
+            int dsW = regChannel.getWidth() / downsampleFactor;
+            int dsH = regChannel.getHeight() / downsampleFactor;
+            IJ.log("    Downsampling from " + regChannel.getWidth() + "x" + regChannel.getHeight()
+                    + " to " + dsW + "x" + dsH + " (" + downsampleFactor + "x)");
+            ImageStack dsStack = new ImageStack(dsW, dsH);
+            ImageStack srcStack = regChannel.getStack();
+            for (int i = 1; i <= srcStack.getSize(); i++) {
+                ImageProcessor ds = srcStack.getProcessor(i).resize(dsW, dsH);
+                dsStack.addSlice(srcStack.getSliceLabel(i), ds);
+            }
+            regChannel.close();
+            regChannel = new ImagePlus("_3ddrift_blue_ds_tmp", dsStack);
+        }
+
         // Strip calibration — Correct 3D Drift rejects images with physical units
-        // on some Fiji versions (breaks Incucyte files with unit = "µm")
         ij.measure.Calibration cal = regChannel.getCalibration();
         cal.pixelWidth  = 1.0;
         cal.pixelHeight = 1.0;
@@ -125,8 +159,11 @@ public class MotionCorrector {
         cal.setUnit("pixel");
         regChannel.setCalibration(cal);
 
-        // Ensure dimensions are set as time-lapse (not z-stack)
-        regChannel.setDimensions(1, 1, nSlices);
+        // Set as hyperstack: C=1, Z=1, T=nFrames
+        // Plugin uses getNSlices() for Z-range validation and getNFrames() for time
+        int regFrames = regChannel.getStackSize();
+        regChannel.setDimensions(1, 1, regFrames);
+        regChannel.setOpenAsHyperStack(true);
 
         // Plugin requires the image window to be visible
         regChannel.show();
@@ -137,11 +174,14 @@ public class MotionCorrector {
         try {
             String cmd = findCorrect3DDriftCommand();
             IJ.log("  Using command: '" + cmd + "'");
+            // highest=1 because Z=1 (2D time-lapse); the plugin iterates over T automatically
             IJ.run(regChannel, cmd,
-                    "channel=1 edge_enhance"
+                    "channel=1 multi_time_scale sub_pixel edge_enhance"
                     + " only_consider=0"
-                    + " lowest=1 highest=" + nSlices
-                    + " max_shift_x=50 max_shift_y=50 max_shift_z=10");
+                    + " lowest=1 highest=1"
+                    + " max_shift_x=" + (doDownsample ? 50 / downsampleFactor + 10 : 50)
+                    + " max_shift_y=" + (doDownsample ? 50 / downsampleFactor + 10 : 50)
+                    + " max_shift_z=10");
         } catch (Exception e) {
             IJ.log("  WARNING: Correct 3D Drift failed: " + e.getMessage());
             regChannel.close();
@@ -150,67 +190,14 @@ public class MotionCorrector {
 
         // Hide and discard the blue channel registered result — we only need the log
         regChannel.close();
-        // Also close any new window the plugin may have opened
         ImagePlus pluginResult = WindowManager.getCurrentImage();
         if (pluginResult != null && pluginResult.getTitle().contains("registered")) {
             pluginResult.close();
         }
 
         // --- 3. Parse drift values from the ImageJ Log ---
-        // Format: "frame N correcting drift dx,dy,0"
-        String log = IJ.getLog();
-        double[] shiftX = new double[nSlices];
-        double[] shiftY = new double[nSlices];
-        double[] quality = new double[nSlices];
-        java.util.Arrays.fill(quality, 1.0);
-
-        if (log != null) {
-            String[] lines = log.split("\n");
-            for (String line : lines) {
-                line = line.trim();
-                // Match lines like: "frame 5 correcting drift -2.0,1.5,0"
-                if (!line.toLowerCase().contains("correcting drift")) {
-                    continue;
-                }
-                try {
-                    // Extract frame number
-                    int frameIdx = -1;
-                    if (line.toLowerCase().startsWith("frame")) {
-                        String[] parts = line.split("\\s+");
-                        // parts[0]="frame", parts[1]=N, parts[2]="correcting", ...
-                        if (parts.length >= 2) {
-                            frameIdx = Integer.parseInt(parts[1]) - 1; // 0-based
-                        }
-                    }
-                    if (frameIdx < 0 || frameIdx >= nSlices) {
-                        continue;
-                    }
-                    // Extract "dx,dy,0" — the last whitespace-separated token
-                    String[] parts = line.split("\\s+");
-                    String driftToken = parts[parts.length - 1];
-                    String[] driftParts = driftToken.split(",");
-                    if (driftParts.length >= 2) {
-                        double dx = Double.parseDouble(driftParts[0]);
-                        double dy = Double.parseDouble(driftParts[1]);
-                        // The plugin reports corrections to apply; negate to get shift
-                        shiftX[frameIdx] = -dx;
-                        shiftY[frameIdx] = -dy;
-                    }
-                } catch (NumberFormatException nfe) {
-                    // Skip malformed lines
-                }
-            }
-        }
-
-        // Log summary
-        double maxShift = 0;
-        for (int i = 0; i < nSlices; i++) {
-            double mag = Math.sqrt(shiftX[i] * shiftX[i] + shiftY[i] * shiftY[i]);
-            if (mag > maxShift) maxShift = mag;
-        }
-        IJ.log("  Correct 3D Drift complete. Max shift parsed: " + IJ.d2s(maxShift, 2) + " px");
-
-        return new RegistrationResult(shiftX, shiftY, quality, "Correct 3D Drift", "plugin");
+        RegistrationResult result = parseDriftLog(nFrames, downsampleFactor);
+        return result;
     }
 
     /**
@@ -224,28 +211,70 @@ public class MotionCorrector {
      * @return RegistrationResult with per-frame shifts, or null if the plugin failed
      */
     public static RegistrationResult correctWith3DDriftManual(ImagePlus imp, java.awt.Rectangle roi) {
-        int nSlices = imp.getStackSize();
-        if (nSlices <= 1) {
+        return correctWith3DDriftManual(imp, roi, 1);
+    }
+
+    /**
+     * Correct drift using Correct 3D Drift, but only compute cross-correlation
+     * within a user-specified ROI region. This allows the user to select stable
+     * landmarks (scratch marks, tissue edges) and ignore moving cells.
+     *
+     * Always uses multi_time_scale, sub_pixel, and edge_enhance for best results.
+     *
+     * @param imp input stack (any type/colour)
+     * @param roi rectangle defining the landmark region to track
+     * @param downsampleFactor spatial downsample factor (1 = no downsampling)
+     * @return RegistrationResult with per-frame shifts (in full-resolution pixels), or null if failed
+     */
+    public static RegistrationResult correctWith3DDriftManual(ImagePlus imp, java.awt.Rectangle roi,
+                                                               int downsampleFactor) {
+        int nFrames = imp.getNFrames() > 1 ? imp.getNFrames() : imp.getStackSize();
+        if (nFrames <= 1) {
             return new RegistrationResult(new double[1], new double[1], new double[]{1.0},
                     "Correct 3D Drift (Manual)", "plugin");
         }
 
+        if (downsampleFactor < 1) downsampleFactor = 1;
+        boolean doDownsample = downsampleFactor > 1;
+
         IJ.log("  Running Correct 3D Drift on manual ROI (" + roi.width + "x" + roi.height
-                + " at " + roi.x + "," + roi.y + ", " + nSlices + " frames)...");
+                + " at " + roi.x + "," + roi.y + ", " + nFrames + " frames"
+                + (doDownsample ? ", " + downsampleFactor + "x downsample" : "") + ")...");
 
         // --- 1. Extract blue channel cropped to the ROI ---
-        // Blue channel has stable tissue texture — no moving fluorescent cells
+        // extractBlueChannel returns a single-channel stack with nFrames slices
         ImagePlus blueStack = extractBlueChannel(imp);
         ImageStack croppedStack = new ImageStack(roi.width, roi.height);
         ImageStack srcBlue = blueStack.getStack();
-        for (int i = 1; i <= nSlices; i++) {
+        int blueSlices = srcBlue.getSize();
+        for (int i = 1; i <= blueSlices; i++) {
             ImageProcessor ip = srcBlue.getProcessor(i).duplicate();
             ip.setRoi(roi.x, roi.y, roi.width, roi.height);
             croppedStack.addSlice(srcBlue.getSliceLabel(i), ip.crop());
         }
         blueStack.close();
-        ImagePlus cropped = new ImagePlus("_3ddrift_roi_tmp", croppedStack);
-        cropped.setDimensions(1, 1, nSlices); // C=1, Z=1, T=nSlices — plugin expects time-lapse, not Z-stack
+
+        // --- 1b. Downsample if requested ---
+        ImageStack finalStack;
+        if (doDownsample) {
+            int dsW = roi.width / downsampleFactor;
+            int dsH = roi.height / downsampleFactor;
+            IJ.log("    Downsampling ROI from " + roi.width + "x" + roi.height
+                    + " to " + dsW + "x" + dsH + " (" + downsampleFactor + "x)");
+            finalStack = new ImageStack(dsW, dsH);
+            for (int i = 1; i <= croppedStack.getSize(); i++) {
+                ImageProcessor ds = croppedStack.getProcessor(i).resize(dsW, dsH);
+                finalStack.addSlice(croppedStack.getSliceLabel(i), ds);
+            }
+        } else {
+            finalStack = croppedStack;
+        }
+
+        // Set as hyperstack: C=1, Z=1, T=nFrames
+        int regFrames = finalStack.getSize();
+        ImagePlus cropped = new ImagePlus("_3ddrift_roi_tmp", finalStack);
+        cropped.setDimensions(1, 1, regFrames);
+        cropped.setOpenAsHyperStack(true);
         ij.measure.Calibration cal = cropped.getCalibration();
         cal.pixelWidth  = 1.0;
         cal.pixelHeight = 1.0;
@@ -261,11 +290,14 @@ public class MotionCorrector {
         try {
             String cmd = findCorrect3DDriftCommand();
             IJ.log("  Using command: '" + cmd + "'");
+            // highest=1 because Z=1 (2D time-lapse)
             IJ.run(cropped, cmd,
-                    "channel=1 edge_enhance"
+                    "channel=1 multi_time_scale sub_pixel edge_enhance"
                     + " only_consider=0"
-                    + " lowest=1 highest=" + nSlices
-                    + " max_shift_x=50 max_shift_y=50 max_shift_z=10");
+                    + " lowest=1 highest=1"
+                    + " max_shift_x=" + (doDownsample ? 50 / downsampleFactor + 10 : 50)
+                    + " max_shift_y=" + (doDownsample ? 50 / downsampleFactor + 10 : 50)
+                    + " max_shift_z=10");
         } catch (Exception e) {
             IJ.log("  WARNING: Correct 3D Drift (Manual) failed: " + e.getMessage());
             cropped.close();
@@ -279,7 +311,24 @@ public class MotionCorrector {
             pluginResult.close();
         }
 
-        // --- 3. Parse drift values from Log (same as automatic version) ---
+        // --- 3. Parse drift values from Log, scaling up if downsampled ---
+        RegistrationResult result = parseDriftLog(nFrames, downsampleFactor);
+        if (result != null) {
+            return new RegistrationResult(result.shiftX, result.shiftY, result.quality,
+                    "Correct 3D Drift (Manual)", "plugin");
+        }
+        return null;
+    }
+
+    /**
+     * Parse drift correction values from the ImageJ Log after running Correct 3D Drift.
+     * The plugin logs lines like: "frame N correcting drift dx,dy,dz"
+     *
+     * @param nSlices          number of frames in the original (full-res) stack
+     * @param downsampleFactor factor to scale shifts back to full resolution (1 = no scaling)
+     * @return RegistrationResult with per-frame shifts in full-resolution pixels
+     */
+    private static RegistrationResult parseDriftLog(int nSlices, int downsampleFactor) {
         String log = IJ.getLog();
         double[] shiftX = new double[nSlices];
         double[] shiftY = new double[nSlices];
@@ -298,7 +347,7 @@ public class MotionCorrector {
                     if (line.toLowerCase().startsWith("frame")) {
                         String[] parts = line.split("\\s+");
                         if (parts.length >= 2) {
-                            frameIdx = Integer.parseInt(parts[1]) - 1;
+                            frameIdx = Integer.parseInt(parts[1]) - 1; // 0-based
                         }
                     }
                     if (frameIdx < 0 || frameIdx >= nSlices) {
@@ -310,8 +359,10 @@ public class MotionCorrector {
                     if (driftParts.length >= 2) {
                         double dx = Double.parseDouble(driftParts[0]);
                         double dy = Double.parseDouble(driftParts[1]);
-                        shiftX[frameIdx] = -dx;
-                        shiftY[frameIdx] = -dy;
+                        // The plugin reports corrections to apply; negate to get shift
+                        // Scale up by downsample factor to get full-resolution shifts
+                        shiftX[frameIdx] = -dx * downsampleFactor;
+                        shiftY[frameIdx] = -dy * downsampleFactor;
                     }
                 } catch (NumberFormatException nfe) {
                     // Skip malformed lines
@@ -324,9 +375,10 @@ public class MotionCorrector {
             double mag = Math.sqrt(shiftX[i] * shiftX[i] + shiftY[i] * shiftY[i]);
             if (mag > maxShift) maxShift = mag;
         }
-        IJ.log("  Correct 3D Drift (Manual) complete. Max shift: " + IJ.d2s(maxShift, 2) + " px");
+        IJ.log("  Correct 3D Drift complete. Max shift: " + IJ.d2s(maxShift, 2) + " px"
+                + (downsampleFactor > 1 ? " (scaled " + downsampleFactor + "x from downsampled)" : ""));
 
-        return new RegistrationResult(shiftX, shiftY, quality, "Correct 3D Drift (Manual)", "plugin");
+        return new RegistrationResult(shiftX, shiftY, quality, "Correct 3D Drift", "plugin");
     }
 
     /**
@@ -788,12 +840,12 @@ public class MotionCorrector {
      */
     private static ImagePlus extractBlueChannel(ImagePlus imp) {
         ImageStack src = imp.getStack();
-        int nSlices = src.getSize();
         int w = imp.getWidth();
         int h = imp.getHeight();
 
         if (imp.getType() == ImagePlus.COLOR_RGB) {
             // Extract blue channel (index 2) from each RGB slice
+            int nSlices = src.getSize();
             ImageStack blueStack = new ImageStack(w, h);
             for (int i = 1; i <= nSlices; i++) {
                 int[] pixels = (int[]) src.getProcessor(i).getPixels();
@@ -805,8 +857,25 @@ public class MotionCorrector {
                         new ij.process.ByteProcessor(w, h, blue, null));
             }
             return new ImagePlus("blue_channel", blueStack);
+        } else if (imp.getNChannels() > 1) {
+            // Composite hyperstack: extract the last channel (typically blue/stable texture)
+            // For 3-channel images: ch3 is blue. For 2-channel: ch2.
+            int blueChannel = imp.getNChannels(); // last channel = blue
+            int nFrames = imp.getNFrames();
+            int nZ = imp.getNSlices(); // actual Z slices
+            ImageStack blueStack = new ImageStack(w, h);
+            for (int t = 1; t <= nFrames; t++) {
+                for (int z = 1; z <= nZ; z++) {
+                    int idx = imp.getStackIndex(blueChannel, z, t);
+                    ImageProcessor ip = src.getProcessor(idx).duplicate();
+                    blueStack.addSlice(src.getSliceLabel(idx), ip);
+                }
+            }
+            ImagePlus result = new ImagePlus("blue_channel", blueStack);
+            IJ.run(result, "8-bit", "");
+            return result;
         } else {
-            // Non-RGB: duplicate and convert to 8-bit
+            // Single-channel greyscale: duplicate and convert to 8-bit
             ImagePlus dup = imp.duplicate();
             IJ.run(dup, "8-bit", "");
             return dup;

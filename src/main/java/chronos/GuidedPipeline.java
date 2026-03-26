@@ -662,6 +662,35 @@ public class GuidedPipeline {
             config.motionCorrectionMethod = selectedMethod;
             registrationMethodUsed = selectedMethod;
 
+            // Stage 3b2: Downsample dialog for Correct 3D Drift methods
+            if ("Correct 3D Drift".equalsIgnoreCase(selectedMethod)
+                    || "Correct 3D Drift (Manual Landmarks)".equalsIgnoreCase(selectedMethod)) {
+                PipelineDialog dsDlg = new PipelineDialog("CHRONOS — 3D Drift Downsampling");
+                dsDlg.addHeader("Downsample for Drift Computation");
+                dsDlg.addHelpText("Computing drift on a downsampled copy is much faster for large images. "
+                        + "The drift vectors are automatically scaled back to full resolution and applied "
+                        + "to the original image. A factor of 2-4 works well for most data.");
+                dsDlg.addSpacer(4);
+                ToggleSwitch dsToggle = dsDlg.addToggle("Downsample before drift computation",
+                        config.driftDownsampleFactor > 1);
+                final JTextField dsFactorField = dsDlg.addNumericField("Downsample factor",
+                        Math.max(2, config.driftDownsampleFactor), 0);
+                dsFactorField.setEnabled(config.driftDownsampleFactor > 1);
+                dsToggle.addChangeListener(new Runnable() {
+                    public void run() {
+                        dsFactorField.setEnabled(dsToggle.isSelected());
+                    }
+                });
+                if (!dsDlg.showDialog()) return false;
+                boolean dsEnabled = dsDlg.getNextBoolean();
+                int dsFactor = (int) dsDlg.getNextNumber();
+                if (dsEnabled && dsFactor > 1) {
+                    config.driftDownsampleFactor = dsFactor;
+                } else {
+                    config.driftDownsampleFactor = 1;
+                }
+            }
+
             // Stage 3c: Interactive pre-registration setup (alignment + broad crop)
             Map<String, Double> perFileAngles = new LinkedHashMap<String, Double>();
             Map<String, Rectangle> perFileBroadCrops = new LinkedHashMap<String, Rectangle>();
@@ -822,14 +851,15 @@ public class GuidedPipeline {
                 }
 
                 // Apply registration
-                // Plugin-based methods (SIFT, Cross-Correlation, Descriptor-Based, Correct 3D Drift)
-                // already apply corrections in-place — only non-plugin methods need applyRegistration
+                // Plugin-based methods (SIFT, Cross-Correlation, Descriptor-Based)
+                // already apply corrections in-place — only non-plugin methods need applyRegistration.
+                // Note: Correct 3D Drift is NOT plugin-based here — correctWith3DDrift() only
+                // computes shifts (runs plugin on blue channel, parses log, discards plugin output).
+                // The shifts must be applied separately via applyRegistration.
                 ImagePlus registered;
                 boolean pluginBased = "SIFT".equalsIgnoreCase(methodToUse)
                         || "Cross-Correlation".equalsIgnoreCase(methodToUse)
-                        || "Descriptor-Based".equalsIgnoreCase(methodToUse)
-                        || "Correct 3D Drift".equalsIgnoreCase(methodToUse)
-                        || "Correct 3D Drift (Manual Landmarks)".equalsIgnoreCase(methodToUse);
+                        || "Descriptor-Based".equalsIgnoreCase(methodToUse);
                 if (regResult != null && !pluginBased) {
                     registered = MotionCorrector.applyRegistration(imp, regResult);
                     if (registered != imp) { imp.close(); imp = registered; }
@@ -968,9 +998,7 @@ public class GuidedPipeline {
                         regResult = computeRegistration(imp, methodToUse, driftResult);
                         boolean retryPluginBased = "SIFT".equalsIgnoreCase(methodToUse)
                                 || "Cross-Correlation".equalsIgnoreCase(methodToUse)
-                                || "Descriptor-Based".equalsIgnoreCase(methodToUse)
-                                || "Correct 3D Drift".equalsIgnoreCase(methodToUse)
-                                || "Correct 3D Drift (Manual Landmarks)".equalsIgnoreCase(methodToUse);
+                                || "Descriptor-Based".equalsIgnoreCase(methodToUse);
                         if (regResult != null && !retryPluginBased) {
                             registered = MotionCorrector.applyRegistration(imp, regResult);
                             if (registered != imp) { imp.close(); imp = registered; }
@@ -1178,7 +1206,7 @@ public class GuidedPipeline {
             return AnchorPatchTracker.track(imp, config.motionCorrectionReference);
         } else if ("Correct 3D Drift".equalsIgnoreCase(method)) {
             IJ.log("  Registering with Correct 3D Drift...");
-            RegistrationResult result = MotionCorrector.correctWith3DDrift(imp);
+            RegistrationResult result = MotionCorrector.correctWith3DDrift(imp, config.driftDownsampleFactor);
             if (result == null) {
                 IJ.log("  Correct 3D Drift failed, falling back to Phase Correlation...");
                 return MotionCorrector.computePhaseCorrelation(imp, config.motionCorrectionReference);
@@ -1196,13 +1224,13 @@ public class GuidedPipeline {
             imp.hide();
             if (roi == null || roi.width < 10 || roi.height < 10) {
                 IJ.log("  No valid ROI drawn, falling back to automatic Correct 3D Drift...");
-                RegistrationResult result = MotionCorrector.correctWith3DDrift(imp);
+                RegistrationResult result = MotionCorrector.correctWith3DDrift(imp, config.driftDownsampleFactor);
                 if (result == null) {
                     return MotionCorrector.computePhaseCorrelation(imp, config.motionCorrectionReference);
                 }
                 return result;
             }
-            RegistrationResult result = MotionCorrector.correctWith3DDriftManual(imp, roi);
+            RegistrationResult result = MotionCorrector.correctWith3DDriftManual(imp, roi, config.driftDownsampleFactor);
             if (result == null) {
                 IJ.log("  Correct 3D Drift (Manual) failed, falling back to Phase Correlation...");
                 return MotionCorrector.computePhaseCorrelation(imp, config.motionCorrectionReference);
