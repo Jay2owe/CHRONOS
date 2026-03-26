@@ -850,7 +850,7 @@ public class GuidedPipeline {
                     approvalDlg.addMessage("Scroll through the stack to verify registration quality.");
                     approvalDlg.addSpacer(4);
 
-                    String[] actions = {"Accept", "Try different method", "Restart all with new method"};
+                    String[] actions = {"Accept", "Accept + refine (rotation correction)", "Try different method", "Restart all with new method"};
                     approvalDlg.addChoice("Action", actions, "Accept");
 
                     int remaining = filesToProcess.size() - fi - 1;
@@ -888,6 +888,47 @@ public class GuidedPipeline {
                                 applyAllResult = null;
                             }
                         }
+                    } else if (action.startsWith("Accept + refine")) {
+                        // Second pass: re-run Correct 3D Drift on a stable tissue crop.
+                        // The first pass may have under-corrected due to moving cells confusing
+                        // cross-correlation on the full image. Cropping to a stable region gives
+                        // more accurate drift vectors, which are then applied to the full stack.
+                        IJ.log("  Starting refinement pass (crop-based re-registration)...");
+                        IJ.log("  Draw a rectangle around a STABLE tissue region (no cells, no black edges), then click OK.");
+                        registered.show();
+                        ij.gui.WaitForUserDialog refineDlg = new ij.gui.WaitForUserDialog(
+                                "CHRONOS — Refinement Crop",
+                                "Draw a rectangle around a stable tissue region\n"
+                                + "(no cells, no black edges from previous pass).\n\n"
+                                + "This region will be used to compute refined drift vectors\n"
+                                + "which are then applied to the full image.\n\n"
+                                + "Click OK when the rectangle is drawn.");
+                        refineDlg.show();
+                        java.awt.Rectangle refineRoi = (registered.getRoi() != null)
+                                ? registered.getRoi().getBounds() : null;
+                        registered.killRoi();
+                        registered.hide();
+
+                        if (refineRoi == null || refineRoi.width < 50 || refineRoi.height < 50) {
+                            IJ.log("  No valid ROI drawn (need at least 50x50). Skipping refinement.");
+                        } else {
+                            // Extract blue channel from registered, crop, run 3D Drift
+                            RegistrationResult refineResult =
+                                    MotionCorrector.correctWith3DDriftManual(registered, refineRoi);
+                            if (refineResult != null) {
+                                ImagePlus refined = MotionCorrector.applyRegistration(registered, refineResult);
+                                if (refined != registered) {
+                                    registered.close();
+                                    registered = refined;
+                                    IJ.log("  Refinement complete. Max residual shift: "
+                                            + IJ.d2s(refineResult.maxShift, 2) + " px");
+                                }
+                            } else {
+                                IJ.log("  WARNING: Refinement failed. Keeping first-pass result.");
+                            }
+                        }
+                        // Don't accept yet — show the refined result for approval
+                        // (loops back to the approval dialog)
                     } else if ("Try different method".equals(action)) {
                         // Show method picker, re-register this stack
                         PipelineDialog retryDlg = new PipelineDialog("CHRONOS — Choose Method");

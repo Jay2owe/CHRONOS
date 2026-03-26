@@ -79,20 +79,23 @@ public class MotionCorrector {
             }
         } catch (Exception e) {
             IJ.log("  WARNING: SIFT alignment failed (" + e.getClass().getSimpleName()
-                    + ": " + e.getMessage() + "). Falling back to cross-correlation.");
+                    + ": " + e.getMessage() + "). Returning input unchanged.");
             if (!wasVisible) {
                 imp.hide();
             }
-            return correct(imp, "mean");
+            return imp;
         }
     }
 
     /**
      * Correct drift using Fiji's "Correct 3D Drift" plugin.
-     * Computes drift on an 8-bit greyscale duplicate (calibration stripped to avoid
-     * the plugin rejecting Incucyte images with physical units), parses the per-frame
-     * dx/dy corrections from the ImageJ Log window, then applies them to the original
-     * RGB/colour stack using bilinear interpolation.
+     * Extracts the blue channel (stable tissue texture, no fluorescence) for
+     * registration, parses per-frame dx/dy corrections from the ImageJ Log,
+     * then the caller applies them to the original RGB/colour stack.
+     *
+     * The blue channel is used because moving fluorescent cells (e.g. GFP microglia)
+     * in the green channel would confuse cross-correlation-based registration.
+     * Blue typically contains only background tissue texture in GFP experiments.
      *
      * @param imp input stack (any type/colour)
      * @return RegistrationResult with per-frame shifts, or null if the plugin failed
@@ -104,40 +107,49 @@ public class MotionCorrector {
                     "Correct 3D Drift", "plugin");
         }
 
-        IJ.log("  Running Correct 3D Drift (" + nSlices + " frames)...");
+        IJ.log("  Running Correct 3D Drift (" + nSlices + " frames, blue channel registration)...");
 
-        // --- 1. Build an 8-bit greyscale duplicate with calibration stripped ---
-        // Correct 3D Drift rejects images whose pixel unit is not "pixel" on some
-        // Fiji versions, which breaks Incucyte files (unit = "µm").
-        ImagePlus grey = imp.duplicate();
-        grey.setTitle("_3ddrift_grey_tmp");
-        IJ.run(grey, "8-bit", "");
-        ij.measure.Calibration cal = grey.getCalibration();
+        // --- 1. Extract the blue channel for registration ---
+        // Blue channel has stable tissue texture without fluorescent signal from
+        // moving cells (GFP in green, RFP in red). Converting the full RGB to
+        // greyscale would include moving cell signal and corrupt the alignment.
+        ImagePlus regChannel = extractBlueChannel(imp);
+        regChannel.setTitle("_3ddrift_blue_tmp");
+
+        // Strip calibration — Correct 3D Drift rejects images with physical units
+        // on some Fiji versions (breaks Incucyte files with unit = "µm")
+        ij.measure.Calibration cal = regChannel.getCalibration();
         cal.pixelWidth  = 1.0;
         cal.pixelHeight = 1.0;
         cal.pixelDepth  = 1.0;
         cal.setUnit("pixel");
-        grey.setCalibration(cal);
+        regChannel.setCalibration(cal);
+
+        // Ensure dimensions are set as time-lapse (not z-stack)
+        regChannel.setDimensions(1, 1, nSlices);
 
         // Plugin requires the image window to be visible
-        grey.show();
+        regChannel.show();
 
         // --- 2. Clear the Log before running so we can parse fresh output ---
         IJ.log("\\Clear");
 
         try {
             String cmd = findCorrect3DDriftCommand();
-            IJ.run(grey, cmd,
-                    "channel=1 only=0 lowest=1 highest=" + nSlices
-                    + " maximum_shift=50 edge_enhance");
+            IJ.log("  Using command: '" + cmd + "'");
+            IJ.run(regChannel, cmd,
+                    "channel=1 edge_enhance"
+                    + " only_consider=0"
+                    + " lowest=1 highest=" + nSlices
+                    + " max_shift_x=50 max_shift_y=50 max_shift_z=10");
         } catch (Exception e) {
             IJ.log("  WARNING: Correct 3D Drift failed: " + e.getMessage());
-            grey.close();
+            regChannel.close();
             return null;
         }
 
-        // Hide and discard the greyscale registered result — we only need the log
-        grey.close();
+        // Hide and discard the blue channel registered result — we only need the log
+        regChannel.close();
         // Also close any new window the plugin may have opened
         ImagePlus pluginResult = WindowManager.getCurrentImage();
         if (pluginResult != null && pluginResult.getTitle().contains("registered")) {
@@ -221,17 +233,19 @@ public class MotionCorrector {
         IJ.log("  Running Correct 3D Drift on manual ROI (" + roi.width + "x" + roi.height
                 + " at " + roi.x + "," + roi.y + ", " + nSlices + " frames)...");
 
-        // --- 1. Build 8-bit greyscale cropped to the ROI ---
+        // --- 1. Extract blue channel cropped to the ROI ---
+        // Blue channel has stable tissue texture — no moving fluorescent cells
+        ImagePlus blueStack = extractBlueChannel(imp);
         ImageStack croppedStack = new ImageStack(roi.width, roi.height);
-        ImageStack srcStack = imp.getStack();
+        ImageStack srcBlue = blueStack.getStack();
         for (int i = 1; i <= nSlices; i++) {
-            ImageProcessor ip = srcStack.getProcessor(i).duplicate();
+            ImageProcessor ip = srcBlue.getProcessor(i).duplicate();
             ip.setRoi(roi.x, roi.y, roi.width, roi.height);
-            croppedStack.addSlice(srcStack.getSliceLabel(i), ip.crop());
+            croppedStack.addSlice(srcBlue.getSliceLabel(i), ip.crop());
         }
+        blueStack.close();
         ImagePlus cropped = new ImagePlus("_3ddrift_roi_tmp", croppedStack);
         cropped.setDimensions(1, 1, nSlices); // C=1, Z=1, T=nSlices — plugin expects time-lapse, not Z-stack
-        IJ.run(cropped, "8-bit", "");
         ij.measure.Calibration cal = cropped.getCalibration();
         cal.pixelWidth  = 1.0;
         cal.pixelHeight = 1.0;
@@ -246,9 +260,12 @@ public class MotionCorrector {
 
         try {
             String cmd = findCorrect3DDriftCommand();
+            IJ.log("  Using command: '" + cmd + "'");
             IJ.run(cropped, cmd,
-                    "channel=1 only=0 lowest=1 highest=" + nSlices
-                    + " maximum_shift=50 edge_enhance");
+                    "channel=1 edge_enhance"
+                    + " only_consider=0"
+                    + " lowest=1 highest=" + nSlices
+                    + " max_shift_x=50 max_shift_y=50 max_shift_z=10");
         } catch (Exception e) {
             IJ.log("  WARNING: Correct 3D Drift (Manual) failed: " + e.getMessage());
             cropped.close();
@@ -763,6 +780,40 @@ public class MotionCorrector {
     }
 
     /**
+     * Extract the blue channel from an RGB stack as an 8-bit greyscale stack.
+     * For non-RGB images (already greyscale or composite), returns an 8-bit duplicate.
+     *
+     * @param imp input stack (RGB or other)
+     * @return 8-bit stack of the blue channel (or greyscale duplicate for non-RGB)
+     */
+    private static ImagePlus extractBlueChannel(ImagePlus imp) {
+        ImageStack src = imp.getStack();
+        int nSlices = src.getSize();
+        int w = imp.getWidth();
+        int h = imp.getHeight();
+
+        if (imp.getType() == ImagePlus.COLOR_RGB) {
+            // Extract blue channel (index 2) from each RGB slice
+            ImageStack blueStack = new ImageStack(w, h);
+            for (int i = 1; i <= nSlices; i++) {
+                int[] pixels = (int[]) src.getProcessor(i).getPixels();
+                byte[] blue = new byte[pixels.length];
+                for (int j = 0; j < pixels.length; j++) {
+                    blue[j] = (byte) (pixels[j] & 0xFF); // blue = lowest 8 bits
+                }
+                blueStack.addSlice(src.getSliceLabel(i),
+                        new ij.process.ByteProcessor(w, h, blue, null));
+            }
+            return new ImagePlus("blue_channel", blueStack);
+        } else {
+            // Non-RGB: duplicate and convert to 8-bit
+            ImagePlus dup = imp.duplicate();
+            IJ.run(dup, "8-bit", "");
+            return dup;
+        }
+    }
+
+    /**
      * Find the exact registered command name for "Correct 3D Drift" by
      * case-insensitive search through Fiji's command table. Different Fiji
      * versions register it as "Correct 3D Drift" or "Correct 3D drift".
@@ -773,10 +824,24 @@ public class MotionCorrector {
         java.util.Hashtable commands = Menus.getCommands();
         if (commands != null) {
             for (Object key : commands.keySet()) {
-                if (key.toString().equalsIgnoreCase("Correct 3D Drift")) {
+                String name = key.toString();
+                if (name.equalsIgnoreCase("Correct 3D Drift")
+                        || name.equalsIgnoreCase("Correct 3D drift")) {
+                    IJ.log("  Found Correct 3D Drift command: '" + name + "'");
+                    return name;
+                }
+            }
+            // Broader search — match anything containing "correct" and "drift"
+            for (Object key : commands.keySet()) {
+                String lower = key.toString().toLowerCase();
+                if (lower.contains("correct") && lower.contains("drift") && lower.contains("3d")) {
+                    IJ.log("  Found Correct 3D Drift command (broad match): '" + key + "'");
                     return key.toString();
                 }
             }
+            IJ.log("  WARNING: Correct 3D Drift not found in " + commands.size() + " commands. Using fallback name.");
+        } else {
+            IJ.log("  WARNING: Menus.getCommands() returned null");
         }
         return "Correct 3D drift"; // most common registration
     }
