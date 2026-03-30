@@ -3,3 +3,22 @@ target/
 .idea/
 *.iml
 *.log
+
+# Maven wrapper distribution (auto-downloaded)
+.mvn/wrapper/maven-dist/
+
+# AI context files
+CLAUDE*.md
+.claude/
+.task/
+
+# Temp files
+*.tmp.*
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Editor
+.vscode/
